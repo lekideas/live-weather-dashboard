@@ -1,5 +1,5 @@
 // Example JavaScript to fetch weather data
-const apiKey = 'YOUR_API_KEY'; // Replace with your actual API key
+const apiKey = 'cb6b79a035a1e366242f9fe1ae57f4fa'; // Replace with your actual API key
 const currentWeatherUrl = `https://api.openweathermap.org/data/2.5/weather?q=Canberra&appid=${apiKey}&units=metric`;
 const oneYearAgo = Math.floor(Date.now() / 1000) - (365 * 24 * 60 * 60); // Unix time for one year ago
 const lat = '-35.2835';  // Latitude for Canberra
