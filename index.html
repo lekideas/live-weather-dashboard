@@ -4,28 +4,29 @@
     <meta charset="UTF-8">
     <meta http-equiv="X-UA-Compatible" content="IE=edge">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Live Weather Dashboard</title>
+    <title>Weather Party Comparator</title>
     <link rel="stylesheet" href="style.css"> <!-- If you have a CSS file -->
 </head>
 <body>
-    <h1>Canberra Weather Dashboard</h1>
-    <div id="weather-container">
-        <h2>Current Weather</h2>
-        <div id="current-weather">
-            <!-- Current weather will be updated here by script.js -->
-            <p>Temperature: <span id="current-temp"></span>°C</p>
-            <p>Conditions: <span id="current-conditions"></span></p>
+    <h1>Street Party Weather Comparator</h1>
+    <div id="weather-comparator">
+        <div id="canberra-weather">
+            <h2>Canberra Weather</h2>
+            <p>Temperature: <span id="canberra-temp"></span>°C</p>
+            <p>Conditions: <span id="canberra-conditions"></span></p>
         </div>
 
-        <h2>Weather 1 Year Ago</h2>
-        <div id="historical-weather">
-            <!-- Historical weather will be updated here by script.js -->
-            <p>Temperature: <span id="historical-temp"></span>°C</p>
-            <p>Conditions: <span id="historical-conditions"></span></p>
+        <div id="edinburgh-weather">
+            <h2>Edinburgh Weather</h2>
+            <p>Temperature: <span id="edinburgh-temp"></span>°C</p>
+            <p>Conditions: <span id="edinburgh-conditions"></span></p>
+        </div>
+
+        <div id="party-verdict">
+            <h2>Verdict: <span id="better-party-location"></span></h2>
         </div>
     </div>
 
     <script src="script.js"></script> <!-- Link to your JavaScript file -->
 </body>
 </html>
-
