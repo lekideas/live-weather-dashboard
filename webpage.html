@@ -1,0 +1,224 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Weather Showdown</title>
+  <style>
+    body {
+      font-family: Arial, sans-serif;
+      margin: 0;
+      padding: 2rem;
+      background: linear-gradient(to right, #a1c4fd, #c2e9fb);
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+    }
+    h1 {
+      margin-bottom: 1rem;
+    }
+    .inputs {
+      margin-bottom: 2rem;
+    }
+    input {
+      padding: 0.5rem;
+      margin: 0 0.5rem;
+      border-radius: 8px;
+      border: 1px solid #ccc;
+    }
+    button {
+      padding: 0.5rem 1rem;
+      border-radius: 8px;
+      border: none;
+      background-color: #0077ff;
+      color: white;
+      cursor: pointer;
+    }
+    .weather-container {
+      display: flex;
+      gap: 2rem;
+      justify-content: center;
+      flex-wrap: wrap;
+    }
+    .weather-card {
+      border-radius: 16px;
+      padding: 1.5rem;
+      box-shadow: 0 4px 12px rgba(0,0,0,0.1);
+      min-width: 200px;
+      text-align: center;
+      opacity: 0;
+      transform: translateY(20px);
+      animation: fadeInUp 0.8s ease forwards;
+    }
+    .weather-icon {
+      width: 80px;
+      height: 80px;
+    }
+    @keyframes fadeInUp {
+      to {
+        opacity: 1;
+        transform: translateY(0);
+      }
+    }
+    .quote {
+      font-style: italic;
+      color: #555;
+      margin-top: 1rem;
+    }
+    .verdict {
+      margin-top: 2rem;
+      font-size: 1.2rem;
+      font-weight: bold;
+    }
+  </style>
+</head>
+<body>
+  <h1>Weather Showdown</h1>
+  <div class="inputs">
+    <input type="text" id="city1" placeholder="Enter City 1">
+    <input type="text" id="city2" placeholder="Enter City 2">
+    <button onclick="getWeather()">Compare</button>
+  </div>
+  <div class="weather-container" id="weather-container"></div>
+  <div class="verdict" id="verdict"></div>
+
+  <script>
+    const API_KEY = 'cb6b79a035a1e366242f9fe1ae57f4fa';
+
+    async function fetchWeather(city) {
+      const response = await fetch(
+        `https://api.openweathermap.org/data/2.5/weather?q=${city}&units=metric&appid=${API_KEY}`
+      );
+      if (!response.ok) {
+        throw new Error(`City "${city}" not found.`);
+      }
+      return await response.json();
+    }
+
+    function getFunnyQuote(weather) {
+      const quotes = {
+        Clear: [
+          "It's so bright, even my future's jealous.",
+          "Sun's out, fun's out!",
+          "Keep your face always toward the sunshine – and shadows will fall behind you. — Walt Whitman"
+        ],
+        Clouds: [
+          "A cloud a day keeps the sun away.",
+          "Cloudy with a chance of napping.",
+          "Try to be a rainbow in someone’s cloud. — Maya Angelou"
+        ],
+        Rain: [
+          "It's not crying, it's just sky tears.",
+          "Perfect weather for dramatic staring out the window.",
+          "Let the rain kiss you. — Langston Hughes"
+        ],
+        Drizzle: [
+          "The sky's trying to be subtle.",
+          "Not quite rain, not quite shine.",
+          "Drizzle: nature’s way of making you second guess that no-umbrella decision."
+        ],
+        Thunderstorm: [
+          "Someone upstairs is bowling again.",
+          "Drama in the skies tonight!",
+          "There is peace even in the storm. — Vincent van Gogh"
+        ],
+        Snow: [
+          "Welcome to nature’s slushie machine.",
+          "Time to make questionable snowmen.",
+          "To appreciate the beauty of a snowflake it is necessary to stand out in the cold. — Aristotle"
+        ],
+        Mist: [
+          "Mysterious... like a Scooby-Doo episode.",
+          "The world’s in soft focus today.",
+          "Truth is the daughter of time, not of authority. — Francis Bacon (foggy logic)"
+        ],
+        default: [
+          "Classic weather — unpredictable but fashionable.",
+          "Just another day in the grand atmosphere.",
+          "The best thing one can do when it’s raining is to let it rain. — Henry Wadsworth Longfellow"
+        ]
+      };
+      const selected = quotes[weather] || quotes.default;
+      return selected[Math.floor(Math.random() * selected.length)];
+    }
+
+    function getCardColor(weather) {
+      const colors = {
+        Clear: '#fff5d1',
+        Clouds: '#e0e0e0',
+        Rain: '#b3cde0',
+        Drizzle: '#d0e1f9',
+        Thunderstorm: '#c9c9ff',
+        Snow: '#f0f8ff',
+        Mist: '#e5e5e5',
+        default: '#ffffff'
+      };
+      return colors[weather] || colors.default;
+    }
+
+    function createCard(data) {
+      const quote = getFunnyQuote(data.weather[0].main);
+      const bgColor = getCardColor(data.weather[0].main);
+      return `
+        <div class="weather-card" style="background-color: ${bgColor};">
+          <h2>${data.name}</h2>
+          <img class="weather-icon" src="https://openweathermap.org/img/wn/${data.weather[0].icon}@2x.png" alt="${data.weather[0].description}">
+          <p>${data.weather[0].main} (${data.weather[0].description})</p>
+          <p><strong>Temp:</strong> ${data.main.temp}°C</p>
+          <p><strong>Humidity:</strong> ${data.main.humidity}%</p>
+          <p><strong>Wind:</strong> ${data.wind.speed} m/s</p>
+          <p class="quote">"${quote}"</p>
+        </div>
+      `;
+    }
+
+    function getPartyScore(data) {
+      const weather = data.weather[0].main;
+      const temp = data.main.temp;
+      const wind = data.wind.speed;
+      let score = 0;
+      if (weather === 'Clear') score += 3;
+      if (weather === 'Clouds') score += 2;
+      if (weather === 'Snow' || weather === 'Rain') score -= 2;
+      if (weather === 'Thunderstorm') score -= 4;
+      if (temp > 18 && temp < 30) score += 2;
+      if (wind < 5) score += 1;
+      return score;
+    }
+
+    function makeVerdict(city1, data1, city2, data2) {
+      const score1 = getPartyScore(data1);
+      const score2 = getPartyScore(data2);
+      if (score1 > score2) {
+        return `${city1} wins! Better weather for a street party 🎉`;
+      } else if (score2 > score1) {
+        return `${city2} wins! Better weather for a street party 🎊`;
+      } else {
+        return `It's a tie! Toss a coin or host in both! 🎭`;
+      }
+    }
+
+    async function getWeather() {
+      const city1 = document.getElementById('city1').value.trim();
+      const city2 = document.getElementById('city2').value.trim();
+      const container = document.getElementById('weather-container');
+      const verdict = document.getElementById('verdict');
+      container.innerHTML = '';
+      verdict.innerHTML = '';
+
+      try {
+        const [data1, data2] = await Promise.all([
+          fetchWeather(city1),
+          fetchWeather(city2)
+        ]);
+
+        container.innerHTML = createCard(data1) + createCard(data2);
+        verdict.innerText = makeVerdict(city1, data1, city2, data2);
+
+      } catch (err) {
+        container.innerHTML = `<p style="color:red;">${err.message}</p>`;
+      }
+    }
+  </script>
+</body>
+</html>
