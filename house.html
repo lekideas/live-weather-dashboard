@@ -3,216 +3,301 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Wall Drawing Interface</title>
+  <title>Wall Drawing & CFD Simulation</title>
   <style>
-    body {
-      margin: 0;
-      font-family: sans-serif;
-      display: flex;
-      flex-direction: column;
-      align-items: center;
-    }
-    canvas {
-      border: 2px solid #333;
-      margin-top: 1rem;
-      cursor: crosshair;
-    }
-    .controls {
-      margin-top: 1rem;
-      display: flex;
-      flex-wrap: wrap;
-      gap: 1rem;
-      justify-content: center;
-    }
-    button {
-      padding: 0.5rem 1rem;
-      font-size: 1rem;
-      cursor: pointer;
-    }
+    body { margin: 0; font-family: sans-serif; display: flex; flex-direction: column; align-items: center; }
+    canvas { border: 2px solid #333; margin-top: 1rem; cursor: crosshair; }
+    .controls { margin-top: 1rem; display: flex; flex-wrap: wrap; gap: 1rem; justify-content: center; }
+    button { padding: 0.5rem 1rem; font-size: 1rem; cursor: pointer; }
   </style>
 </head>
 <body>
-  <h1>Draw Your Walls</h1>
+  <h1>Wall Drawing & CFD Simulation</h1>
   <canvas id="drawCanvas" width="800" height="600"></canvas>
-  <div class="controls">
-    <button id="closeShapeBtn">Finish House (Close Shape)</button>
-    <button id="undoBtn">Undo Last Point</button>
+  <div class="controls" id="controlPanel">
+    <button id="closeShapeBtn">Finish House</button>
+    <button id="undoBtn">Undo</button>
     <button id="addInternalWallBtn">Add Internal Wall</button>
     <button id="addDoorBtn">Add Door</button>
     <button id="addWindowBtn">Add Window</button>
-    <button id="addWindBtn">Add Wind Direction</button>
+    <button id="addWindBtn">Add Wind</button>
     <button id="resetBtn">Reset</button>
+    <button id="startCFD">Start CFD</button>
   </div>
 
   <script>
     const canvas = document.getElementById('drawCanvas');
     const ctx = canvas.getContext('2d');
-    const closeBtn = document.getElementById('closeShapeBtn');
-    const undoBtn = document.getElementById('undoBtn');
-    const internalWallBtn = document.getElementById('addInternalWallBtn');
-    const doorBtn = document.getElementById('addDoorBtn');
-    const windowBtn = document.getElementById('addWindowBtn');
-    const windBtn = document.getElementById('addWindBtn');
-    const resetBtn = document.getElementById('resetBtn');
+    const controlPanel = document.getElementById('controlPanel');
 
-    let outerWalls = [], internalWalls = [], doors = [], windows = [], currentPoints = [];
-    let windVector = [];
+    // Drawing data
+    const outerWalls = [], internalWalls = [], doors = [], windows = [];
+    const currentPoints = [], windVector = [];
     let isShapeClosed = false;
     let drawingInternal = false, drawingDoor = false, drawingWindow = false, drawingWind = false;
     let snapCursor = null;
-
     const SNAP_RADIUS = 10;
 
-    function getSnapPoint(x, y) {
-      const allPoints = [...outerWalls, ...internalWalls.flat(), ...doors.flat(), ...windows.flat()];
-      for (const p of allPoints) {
-        const dx = p.x - x, dy = p.y - y;
-        if (Math.sqrt(dx * dx + dy * dy) <= SNAP_RADIUS) return p;
+    // CFD grid
+    const gridCellSize = 8;
+    const gridWidth = canvas.width / gridCellSize;
+    const gridHeight = canvas.height / gridCellSize;
+    let grid = [];
+    let cfdRunning = false;
+
+    // Particles for visualization
+    const particles = [];
+    const NUM_PARTICLES = 300;
+
+    // Utility: snap to existing points
+    const getSnapPoint = (x,y) => {
+      const all = [...outerWalls, ...internalWalls.flat(), ...doors.flat(), ...windows.flat()];
+      for (const p of all) {
+        if (Math.hypot(p.x - x, p.y - y) <= SNAP_RADIUS) return p;
       }
       return { x, y };
+    };
+
+    // Drawing helpers
+    const drawLines = (pts, color, w, closed=false) => {
+      if (pts.length < 2) return;
+      ctx.beginPath();
+      ctx.moveTo(pts[0].x, pts[0].y);
+      for (let i = 1; i < pts.length; i++) ctx.lineTo(pts[i].x, pts[i].y);
+      if (closed) ctx.closePath();
+      ctx.strokeStyle = color;
+      ctx.lineWidth = w;
+      ctx.stroke();
+    };
+
+    function drawScene() {
+      ctx.clearRect(0, 0, canvas.width, canvas.height);
+      ctx.lineJoin = ctx.lineCap = 'round';
+      if (!cfdRunning) {
+        // In drawing mode
+        drawLines(currentPoints, '#007bff', 2);
+        if (outerWalls.length > 1) drawLines(outerWalls, '#007bff', 4, true);
+        internalWalls.forEach(w => drawLines(w, '#ff6600', 3));
+        doors.forEach(d => drawLines(d, '#00cc00', 3));
+        windows.forEach(w => drawLines(w, '#9999ff', 2));
+        // wind vector
+        if (windVector.length === 1) {
+          ctx.beginPath(); ctx.arc(windVector[0].x, windVector[0].y, 5, 0, 2*Math.PI);
+          ctx.fillStyle = 'black'; ctx.fill();
+        } else if (windVector.length === 2) {
+          ctx.beginPath();
+          ctx.moveTo(windVector[0].x, windVector[0].y);
+          ctx.lineTo(windVector[1].x, windVector[1].y);
+          ctx.strokeStyle = 'black'; ctx.lineWidth = 2; ctx.stroke();
+        }
+        // snap cursor
+        if (snapCursor) {
+          ctx.beginPath(); ctx.arc(snapCursor.x, snapCursor.y, 6, 0, 2*Math.PI);
+          ctx.strokeStyle = 'red'; ctx.lineWidth = 1.5; ctx.stroke();
+        }
+      }
     }
 
-    canvas.addEventListener('mousemove', (e) => {
-      if (!isShapeClosed || (!drawingInternal && !drawingDoor && !drawingWindow && !drawingWind)) return;
+    // Event handlers
+    canvas.addEventListener('mousemove', e => {
+      if (!isShapeClosed || !(drawingInternal || drawingDoor || drawingWindow || drawingWind)) return;
       const rect = canvas.getBoundingClientRect();
       snapCursor = getSnapPoint(e.clientX - rect.left, e.clientY - rect.top);
-      draw();
+      drawScene();
     });
-
-    canvas.addEventListener('click', (e) => {
+    canvas.addEventListener('click', e => {
+      if (cfdRunning) return;
       const rect = canvas.getBoundingClientRect();
-      const snapped = getSnapPoint(e.clientX - rect.left, e.clientY - rect.top);
-
-      if (!isShapeClosed) currentPoints.push(snapped);
-      else if (drawingInternal) { internalWalls.push([snapped]); drawingInternal = false; }
-      else if (drawingDoor) { doors.push([snapped]); drawingDoor = false; }
-      else if (drawingWindow) { windows.push([snapped]); drawingWindow = false; }
-      else if (drawingWind) {
-        windVector.push(snapped);
+      const pt = getSnapPoint(e.clientX - rect.left, e.clientY - rect.top);
+      if (!isShapeClosed) {
+        currentPoints.push(pt);
+      } else if (drawingInternal) {
+        internalWalls.push([pt]); drawingInternal = false;
+      } else if (drawingDoor) {
+        doors.push([pt]); drawingDoor = false;
+      } else if (drawingWindow) {
+        windows.push([pt]); drawingWindow = false;
+      } else if (drawingWind) {
+        windVector.push(pt);
         if (windVector.length === 2) drawingWind = false;
       } else {
-        if (internalWalls.at(-1)?.length === 1) internalWalls.at(-1).push(snapped);
-        if (doors.at(-1)?.length === 1) doors.at(-1).push(snapped);
-        if (windows.at(-1)?.length === 1) windows.at(-1).push(snapped);
+        const last = internalWalls.at(-1);
+        if (last && last.length === 1) { internalWalls.at(-1).push(pt); drawScene(); return; }
+        const lastD = doors.at(-1);
+        if (lastD && lastD.length === 1) { doors.at(-1).push(pt); drawScene(); return; }
+        const lastW = windows.at(-1);
+        if (lastW && lastW.length === 1) { windows.at(-1).push(pt); drawScene(); return; }
       }
-      draw();
+      drawScene();
     });
 
-    closeBtn.onclick = () => {
+    document.getElementById('closeShapeBtn').onclick = () => {
       if (currentPoints.length > 2 && !isShapeClosed) {
-        outerWalls = [...currentPoints];
+        // close shape: push all currentPoints into outerWalls
+        outerWalls.push(...currentPoints);
         isShapeClosed = true;
-        draw();
       }
+      drawScene();
     };
-    undoBtn.onclick = () => {
+
+    document.getElementById('undoBtn').onclick = () => {
       if (!isShapeClosed && currentPoints.length) currentPoints.pop();
       else if (isShapeClosed) {
         if (windows.at(-1)?.length === 1) windows.pop();
         else if (doors.at(-1)?.length === 1) doors.pop();
         else if (internalWalls.at(-1)) {
-          if (internalWalls.at(-1).length > 1) internalWalls.at(-1).pop();
-          else internalWalls.pop();
+          if (internalWalls.at(-1).length > 1) internalWalls.at(-1).pop(); else internalWalls.pop();
         } else if (windVector.length) windVector.pop();
       }
-      draw();
+      drawScene();
     };
 
-    internalWallBtn.onclick = () => { if (isShapeClosed) drawingInternal = true; };
-    doorBtn.onclick = () => { if (isShapeClosed) drawingDoor = true; };
-    windowBtn.onclick = () => { if (isShapeClosed) drawingWindow = true; };
-    windBtn.onclick = () => { if (isShapeClosed) { windVector = []; drawingWind = true; } };
-    resetBtn.onclick = () => {
-      outerWalls = internalWalls = doors = windows = currentPoints = windVector = [];
+    document.getElementById('addInternalWallBtn').onclick = () => { if (isShapeClosed) drawingInternal = true; };
+    document.getElementById('addDoorBtn').onclick = () => { if (isShapeClosed) drawingDoor = true; };
+    document.getElementById('addWindowBtn').onclick = () => { if (isShapeClosed) drawingWindow = true; };
+    document.getElementById('addWindBtn').onclick = () => { if (isShapeClosed) { windVector.length = 0; drawingWind = true; } };
+
+    document.getElementById('resetBtn').onclick = () => {
+      outerWalls.length = internalWalls.length = doors.length = windows.length = currentPoints.length = windVector.length = particles.length = 0;
       isShapeClosed = drawingInternal = drawingDoor = drawingWindow = drawingWind = false;
-      snapCursor = null;
-      draw();
+      cfdRunning = false;
+      controlPanel.style.display = 'flex';
+      drawScene();
     };
 
-    function drawArrow(from, to, color) {
-      const headlen = 10;
-      const dx = to.x - from.x, dy = to.y - from.y;
-      const angle = Math.atan2(dy, dx);
-      ctx.beginPath();
-      ctx.moveTo(from.x, from.y);
-      ctx.lineTo(to.x, to.y);
-      ctx.lineTo(to.x - headlen * Math.cos(angle - Math.PI / 6), to.y - headlen * Math.sin(angle - Math.PI / 6));
-      ctx.moveTo(to.x, to.y);
-      ctx.lineTo(to.x - headlen * Math.cos(angle + Math.PI / 6), to.y - headlen * Math.sin(angle + Math.PI / 6));
-      ctx.strokeStyle = color;
-      ctx.lineWidth = 2;
-      ctx.stroke();
-    }
-
-    function draw() {
-      ctx.clearRect(0, 0, canvas.width, canvas.height);
-      ctx.lineJoin = "round";
-      ctx.lineCap = "round";
-
-      // Outer walls
-      if (outerWalls.length) {
-        ctx.beginPath();
-        outerWalls.forEach((p, i) => i === 0 ? ctx.moveTo(p.x, p.y) : ctx.lineTo(p.x, p.y));
-        ctx.closePath();
-        ctx.strokeStyle = '#007bff';
-        ctx.lineWidth = 6;
-        ctx.stroke();
-      } else {
-        ctx.beginPath();
-        currentPoints.forEach((p, i) => i === 0 ? ctx.moveTo(p.x, p.y) : ctx.lineTo(p.x, p.y));
-        ctx.strokeStyle = '#007bff';
-        ctx.lineWidth = 2;
-        ctx.stroke();
-      }
-
-      // Internal walls
-      internalWalls.forEach(w => {
-        if (w.length < 2) return;
-        ctx.beginPath();
-        w.forEach((p, i) => i === 0 ? ctx.moveTo(p.x, p.y) : ctx.lineTo(p.x, p.y));
-        ctx.strokeStyle = '#ff6600';
-        ctx.lineWidth = 4;
-        ctx.stroke();
-      });
-
-      // Doors
-      doors.forEach(d => {
-        if (d.length < 2) return;
-        ctx.beginPath();
-        ctx.setLineDash([5, 5]);
-        d.forEach((p, i) => i === 0 ? ctx.moveTo(p.x, p.y) : ctx.lineTo(p.x, p.y));
-        ctx.strokeStyle = '#00cc00';
-        ctx.lineWidth = 3;
-        ctx.stroke();
-        ctx.setLineDash([]);
-      });
-
-      // Windows
-      windows.forEach(w => {
-        if (w.length < 2) return;
-        ctx.beginPath();
-        ctx.setLineDash([2, 4]);
-        w.forEach((p, i) => i === 0 ? ctx.moveTo(p.x, p.y) : ctx.lineTo(p.x, p.y));
-        ctx.strokeStyle = '#9999ff';
-        ctx.lineWidth = 3;
-        ctx.stroke();
-        ctx.setLineDash([]);
-      });
-
-      // Wind vector
-      if (windVector.length === 2) drawArrow(windVector[0], windVector[1], '#000');
-
-      // Snap cursor
-      if (snapCursor && (drawingInternal || drawingDoor || drawingWindow || drawingWind)) {
-        ctx.beginPath();
-        ctx.arc(snapCursor.x, snapCursor.y, 6, 0, Math.PI * 2);
-        ctx.strokeStyle = 'red';
-        ctx.lineWidth = 1.5;
-        ctx.stroke();
+    // Initialize grid and mark cells
+    function initGrid() {
+      grid = Array.from({ length: gridHeight }, () => Array.from({ length: gridWidth }, () => ({ vx: 0, vy: 0, type: 'fluid' })));
+      const markCells = (lines, type) => {
+        lines.forEach(line => {
+          const n = line.length;
+          for (let i = 0; i < n; i++) {
+            const p1 = line[i];
+            const p2 = (i < n-1) ? line[i+1] : (line === outerWalls ? line[0] : null);
+            if (!p2) continue;
+            const steps = Math.ceil(Math.max(Math.abs(p2.x - p1.x), Math.abs(p2.y - p1.y)) / gridCellSize);
+            for (let j = 0; j <= steps; j++) {
+              const x = Math.floor((p1.x + (p2.x - p1.x) * j / steps) / gridCellSize);
+              const y = Math.floor((p1.y + (p2.y - p1.y) * j / steps) / gridCellSize);
+              if (x >= 0 && y >= 0 && x < gridWidth && y < gridHeight) {
+                grid[y][x].type = type;
+              }
+            }
+          }
+        });
+      };
+      // mark walls first
+      markCells([outerWalls], 'wall');
+      markCells(internalWalls, 'wall');
+      // then doors/windows override
+      markCells(doors, 'door');
+      markCells(windows, 'window');
+      // set initial fluid velocity from wind
+      if (windVector.length === 2) {
+        const angle = Math.atan2(windVector[1].y - windVector[0].y, windVector[1].x - windVector[0].x);
+        const vx = Math.cos(angle) * 1.5;
+        const vy = Math.sin(angle) * 1.5;
+        for (let y = 0; y < gridHeight; y++) {
+          for (let x = 0; x < gridWidth; x++) {
+            if (grid[y][x].type === 'fluid') {
+              grid[y][x].vx = vx;
+              grid[y][x].vy = vy;
+            }
+          }
+        }
       }
     }
 
-    draw();
+    // Initialize particles for flow visualization
+    function initParticles() {
+      particles.length = 0;
+      for (let i = 0; i < NUM_PARTICLES; i++) {
+        const x = Math.random() * canvas.width;
+        const y = Math.random() * canvas.height;
+        particles.push({ x, y });
+      }
+    }
+
+    function updateParticles() {
+      particles.forEach(p => {
+        const gx = Math.floor(p.x / gridCellSize);
+        const gy = Math.floor(p.y / gridCellSize);
+        if (gx >= 0 && gy >= 0 && gx < gridWidth && gy < gridHeight) {
+          const cell = grid[gy][gx];
+          if (cell.type === 'fluid') {
+            p.x += cell.vx;
+            p.y += cell.vy;
+          }
+        }
+        // wrap
+        if (p.x < 0) p.x += canvas.width;
+        if (p.x > canvas.width) p.x -= canvas.width;
+        if (p.y < 0) p.y += canvas.height;
+        if (p.y > canvas.height) p.y -= canvas.height;
+      });
+    }
+
+    function drawParticles() {
+      ctx.fillStyle = 'rgba(255,255,255,0.7)';
+      particles.forEach(p => {
+        ctx.beginPath();
+        ctx.arc(p.x, p.y, 1.5, 0, 2 * Math.PI);
+        ctx.fill();
+      });
+    }
+
+    // CFD simulation step (advection)
+    function simulateCFD() {
+      const newGrid = grid.map(row => row.map(cell => ({ ...cell })));
+      for (let y = 0; y < gridHeight; y++) {
+        for (let x = 0; x < gridWidth; x++) {
+          const cell = grid[y][x];
+          if (cell.type !== 'fluid') continue;
+          const nx = (x + Math.sign(cell.vx) + gridWidth) % gridWidth;
+          const ny = (y + Math.sign(cell.vy) + gridHeight) % gridHeight;
+          if (grid[ny][nx].type === 'fluid') {
+            newGrid[ny][nx].vx = cell.vx;
+            newGrid[ny][nx].vy = cell.vy;
+          }
+        }
+      }
+      grid = newGrid;
+
+      // draw grid background
+      for (let y = 0; y < gridHeight; y++) {
+        for (let x = 0; x < gridWidth; x++) {
+          const cell = grid[y][x];
+          if (cell.type === 'wall') ctx.fillStyle = '#444';
+          else if (cell.type === 'door') ctx.fillStyle = '#0f0';
+          else if (cell.type === 'window') ctx.fillStyle = '#99f';
+          else {
+            const a = Math.min(1, Math.hypot(cell.vx, cell.vy) / 2);
+            ctx.fillStyle = `rgba(0,150,255,${a})`;
+          }
+          ctx.fillRect(x * gridCellSize, y * gridCellSize, gridCellSize, gridCellSize);
+        }
+      }
+    }
+
+    document.getElementById('startCFD').onclick = () => {
+      if (windVector.length !== 2) return;
+      initGrid();
+      initParticles();
+      cfdRunning = true;
+      controlPanel.style.display = 'none';
+    };
+
+    // Main loop
+    function loop() {
+      if (!cfdRunning) drawScene();
+      else {
+        simulateCFD();
+        updateParticles();
+        drawParticles();
+      }
+      requestAnimationFrame(loop);
+    }
+    loop();
   </script>
 </body>
 </html>
