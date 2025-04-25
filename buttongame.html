@@ -1,0 +1,146 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Button Chase Game</title>
+  <style>
+    body {
+      margin: 0;
+      height: 100vh;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      font-family: sans-serif;
+      background: #f2f2f2;
+      overflow: hidden;
+    }
+    #gameArea {
+      position: relative;
+      width: 100vw;
+      height: 70vh;
+      border: 2px dashed #aaa;
+      margin-bottom: 1rem;
+      overflow: hidden;
+    }
+    #chaseButton {
+      position: absolute;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      padding: 0;
+      border: none;
+      background-color: #007bff;
+      color: white;
+      cursor: pointer;
+      transition: all 0.3s ease;
+      transform: translate(-50%, -50%);
+    }
+    #counter, #globalCounter {
+      font-size: 1.2rem;
+      margin: 0.25rem;
+    }
+    #gameOver {
+      color: red;
+      font-weight: bold;
+      margin-top: 1rem;
+    }
+  </style>
+</head>
+<body>
+  <h1>Button Chase Game</h1>
+  <div id="gameArea">
+    <button id="chaseButton">Catch me!</button>
+  </div>
+  <div id="counter">You've caught me 0 times!</div>
+  <div id="globalCounter">Everyone has caught me 0 times!</div>
+  <div id="gameOver"></div>
+
+  <script>
+    const button = document.getElementById("chaseButton");
+    const counterText = document.getElementById("counter");
+    const globalCounterText = document.getElementById("globalCounter");
+    const gameArea = document.getElementById("gameArea");
+    const gameOverText = document.getElementById("gameOver");
+
+    let personalCount = parseInt(localStorage.getItem("chaseCount")) || 0;
+    let globalCount = parseInt(localStorage.getItem("globalChaseCount")) || 0;
+    let currentTimeLimit = 3000; // starting time limit in ms
+    let timeoutID = null;
+    let shrinkIntervalID = null;
+
+    function updateText() {
+      counterText.textContent = `You've caught me ${personalCount} times!`;
+      globalCounterText.textContent = `Everyone has caught me ${globalCount} times!`;
+    }
+
+    function endGame() {
+      clearTimeout(timeoutID);
+      clearInterval(shrinkIntervalID);
+      gameOverText.textContent = "⏱️ Game over! You didn't catch the button in time.";
+      button.disabled = true;
+      button.style.display = "none";
+    }
+
+    function moveButton() {
+      clearTimeout(timeoutID);
+      clearInterval(shrinkIntervalID);
+
+      const areaWidth = gameArea.clientWidth;
+      const areaHeight = gameArea.clientHeight;
+
+      const randomX = Math.floor(Math.random() * areaWidth);
+      const randomY = Math.floor(Math.random() * areaHeight);
+
+      button.style.left = `${randomX}px`;
+      button.style.top = `${randomY}px`;
+
+      // Random polygon shapes using clip-path
+      const shapes = [
+        "circle(50% at 50% 50%)", // circle
+        "polygon(50% 0%, 0% 100%, 100% 100%)", // triangle
+        "polygon(50% 0%, 100% 38%, 82% 100%, 18% 100%, 0% 38%)", // pentagon
+        "polygon(25% 0%, 75% 0%, 100% 50%, 75% 100%, 25% 100%, 0% 50%)", // hexagon
+        "polygon(50% 0%, 100% 25%, 100% 75%, 50% 100%, 0% 75%, 0% 25%)" // hexagon variation
+      ];
+      button.style.clipPath = shapes[Math.floor(Math.random() * shapes.length)];
+
+      timeoutID = setTimeout(endGame, currentTimeLimit);
+
+      let initialSize = 80;
+      button.style.width = `${initialSize}px`;
+      button.style.height = `${initialSize}px`;
+      button.style.fontSize = `${initialSize / 4}px`;
+
+      let startTime = Date.now();
+      shrinkIntervalID = setInterval(() => {
+        const elapsed = Date.now() - startTime;
+        const progress = Math.min(elapsed / currentTimeLimit, 1);
+        const newSize = initialSize * (1 - progress);
+        button.style.width = `${newSize}px`;
+        button.style.height = `${newSize}px`;
+        button.style.fontSize = `${newSize / 4}px`;
+        if (progress >= 1) {
+          clearInterval(shrinkIntervalID);
+        }
+      }, 30);
+    }
+
+    button.addEventListener("click", () => {
+      personalCount++;
+      globalCount++;
+      currentTimeLimit = Math.max(500, currentTimeLimit - 150); // shrink the time limit
+
+      localStorage.setItem("chaseCount", personalCount);
+      localStorage.setItem("globalChaseCount", globalCount);
+      updateText();
+      moveButton();
+    });
+
+    // Init
+    updateText();
+    moveButton();
+  </script>
+</body>
+</html>
