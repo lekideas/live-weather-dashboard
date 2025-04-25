@@ -1,0 +1,278 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+  <title>Walk the Dog Game</title>
+  <style>
+    body { margin: 0; overflow: hidden; font-family: sans-serif; background: #eef; }
+    #gameCanvas { display: block; }
+    #info {
+      position: fixed; top: 10px; left: 10px;
+      background: rgba(255,255,255,0.8);
+      padding: 8px; border-radius: 4px;
+      z-index: 100;
+    }
+    #info span { margin-right: 16px; }
+    #info button { margin-left: 8px; padding: 4px 8px; }
+  </style>
+</head>
+<body>
+  <div id="info">
+    <span>Time: <strong id="timer">0</strong>s</span>
+    <button id="placeTreatBtn">Place Treat</button>
+    <button id="restartBtn">Restart</button>
+  </div>
+  <canvas id="gameCanvas"></canvas>
+  <script>
+    const canvas = document.getElementById('gameCanvas');
+    const ctx = canvas.getContext('2d');
+    let w, h;
+
+    // Owner & Leash
+    const owner = { x: 80, y: 0, r: 30, vx: 0, vy: 0, speed: 3 };
+    const leashLen = 250;
+
+    // Dog
+    const dog = { x: owner.x, y: owner.y - 60, r: 20, vx: 0, vy: 0, dragged: false };
+
+    // Hazards
+    const hazards = [];
+    const hazardTypes = ['rock','puddle','car','spikes'];
+
+    // Treats
+    const treats = [];
+    let placingTreat = false;
+
+    // Path objectives: more points, smaller radius
+    let pathPoints = [];
+    const pathCount = 40;
+
+    // Timer & state
+    let time = 0, lastTime = 0, gameOver = false;
+    const timerEl = document.getElementById('timer');
+    const restartBtn = document.getElementById('restartBtn');
+    const placeTreatBtn = document.getElementById('placeTreatBtn');
+
+    // Input state
+    const keys = {};
+    window.addEventListener('keydown', e => { keys[e.key] = true; });
+    window.addEventListener('keyup', e => { keys[e.key] = false; });
+
+    // Device tilt
+    window.addEventListener('deviceorientation', e => {
+      if (e.gamma !== null) owner.vx = (e.gamma / 30) * owner.speed;
+      if (e.beta !== null) owner.vy = (e.beta / 30) * owner.speed;
+    });
+
+    // Setup and resize
+    function resize() {
+      w = canvas.width = window.innerWidth;
+      h = canvas.height = window.innerHeight;
+      owner.y = h - 80;
+
+      // Hazards
+      hazards.length = 0;
+      for (let i = 0; i < 7; i++) {
+        hazards.push({
+          x: Math.random() * (w - 100) + 50,
+          y: Math.random() * (h - 200) + 50,
+          r: 20 + Math.random() * 30,
+          type: hazardTypes[Math.floor(Math.random() * hazardTypes.length)]
+        });
+      }
+
+      // Path points
+      pathPoints = [];
+      const cx = w / 2, cy = h / 2, rad = Math.min(w, h) / 3;
+      for (let i = 0; i < pathCount; i++) {
+        const ang = (2 * Math.PI * i / pathCount) - Math.PI / 2;
+        pathPoints.push({ x: cx + Math.cos(ang) * rad, y: cy + Math.sin(ang) * rad, r: 3, cleared: false });
+      }
+
+      // Reset positions
+      owner.x = 80;
+      owner.vx = owner.vy = 0;
+      dog.x = owner.x;
+      dog.y = owner.y - 60;
+      dog.vx = dog.vy = 0;
+      time = 0;
+      gameOver = false;
+      lastTime = performance.now();
+    }
+
+    window.addEventListener('resize', resize);
+    resize();
+
+    // Input handlers
+    canvas.addEventListener('mousedown', e => {
+      const mx = e.clientX, my = e.clientY;
+      if (placingTreat && !gameOver) {
+        treats.push({ x: mx, y: my, r: 10 });
+        placingTreat = false;
+        placeTreatBtn.textContent = 'Place Treat';
+        return;
+      }
+      if (Math.hypot(mx - dog.x, my - dog.y) < dog.r) dog.dragged = true;
+    });
+    canvas.addEventListener('mousemove', e => {
+      if (dog.dragged && !gameOver) {
+        dog.x = e.clientX;
+        dog.y = e.clientY;
+      }
+    });
+    window.addEventListener('mouseup', () => dog.dragged = false);
+    
+    placeTreatBtn.addEventListener('click', () => {
+      placingTreat = !placingTreat;
+      placeTreatBtn.textContent = placingTreat ? 'Click to Add' : 'Place Treat';
+    });
+
+    restartBtn.addEventListener('click', () => {
+      resize();
+    });
+
+    function update(dt) {
+      if (gameOver) return;
+      time += dt;
+      timerEl.textContent = Math.floor(time);
+
+      // Owner movement
+      owner.vx = owner.vy = 0;
+      if (keys['ArrowLeft'] || keys['a']) owner.vx = -owner.speed;
+      if (keys['ArrowRight'] || keys['d']) owner.vx = owner.speed;
+      if (keys['ArrowUp'] || keys['w']) owner.vy = -owner.speed;
+      if (keys['ArrowDown'] || keys['s']) owner.vy = owner.speed;
+      owner.x = Math.max(owner.r, Math.min(w - owner.r, owner.x + owner.vx));
+      owner.y = Math.max(owner.r, Math.min(h - owner.r, owner.y + owner.vy));
+
+      // Dog AI
+      if (!dog.dragged) {
+        if (treats.length) {
+          let nearest = treats[0], minD = Infinity;
+          for (const t of treats) {
+            const d = Math.hypot(dog.x - t.x, dog.y - t.y);
+            if (d < minD) { minD = d; nearest = t; }
+          }
+          const dx = nearest.x - dog.x, dy = nearest.y - dog.y;
+          const mag = Math.hypot(dx, dy) || 1;
+          dog.vx = (dx / mag) * 2;
+          dog.vy = (dy / mag) * 2;
+        } else {
+          dog.vx += (Math.random() * 2 - 1) * 0.5;
+          dog.vy += (Math.random() * 2 - 1) * 0.5;
+        }
+        dog.x += dog.vx;
+        dog.y += dog.vy;
+        // Leash
+        const dxo = dog.x - owner.x, dyo = dog.y - owner.y;
+        const distO = Math.hypot(dxo, dyo);
+        if (distO > leashLen) {
+          dog.x = owner.x + (dxo / distO) * leashLen;
+          dog.y = owner.y + (dyo / distO) * leashLen;
+          dog.vx *= -0.5;
+          dog.vy *= -0.5;
+        }
+      }
+
+      // Clear path
+      for (const pp of pathPoints) {
+        if (!pp.cleared && Math.hypot(dog.x - pp.x, dog.y - pp.y) < dog.r + pp.r) {
+          pp.cleared = true;
+        }
+      }
+      if (!gameOver && pathPoints.every(p => p.cleared)) {
+        gameOver = true;
+        setTimeout(() => alert(`Great job! You cleared the path in ${Math.floor(time)}s.`), 50);
+      }
+
+      // Treat collisions
+      for (let i = treats.length - 1; i >= 0; i--) {
+        const t = treats[i];
+        if (Math.hypot(dog.x - t.x, dog.y - t.y) < dog.r + t.r) treats.splice(i, 1);
+      }
+      // Hazard collisions
+      for (const hz of hazards) {
+        if (Math.hypot(dog.x - hz.x, dog.y - hz.y) < dog.r + hz.r) {
+          gameOver = true;
+        }
+      }
+    }
+
+    function draw() {
+      ctx.clearRect(0, 0, w, h);
+      // Path
+      for (const pp of pathPoints) {
+        ctx.fillStyle = pp.cleared ? 'lightgreen' : 'orange';
+        ctx.beginPath();
+        ctx.arc(pp.x, pp.y, pp.r, 0, 2 * Math.PI);
+        ctx.fill();
+        ctx.strokeStyle = '#444';
+        ctx.lineWidth = 1;
+        ctx.beginPath();
+        ctx.arc(pp.x, pp.y, pp.r, 0, 2 * Math.PI);
+        ctx.stroke();
+      }
+      drawOwner();
+      drawLeash();
+      hazards.forEach(drawHazard);
+      treats.forEach(drawTreat);
+      drawDog();
+    }
+
+    function drawOwner() {
+      ctx.fillStyle = '#336699';
+      ctx.beginPath(); ctx.arc(owner.x, owner.y, owner.r, 0, 2 * Math.PI); ctx.fill();
+      ctx.fillStyle = '#fff'; ctx.font = '16px sans-serif'; ctx.fillText('You', owner.x - 20, owner.y + 5);
+    }
+    function drawLeash() {
+      ctx.strokeStyle = '#888'; ctx.lineWidth = 4;
+      ctx.beginPath(); ctx.moveTo(owner.x, owner.y); ctx.lineTo(dog.x, dog.y); ctx.stroke();
+    }
+    function drawHazard(hz) {
+      switch (hz.type) {
+        case 'rock': ctx.fillStyle = '#666'; ctx.beginPath(); ctx.arc(hz.x,hz.y,hz.r,0,2*Math.PI); ctx.fill(); break;
+        case 'puddle': ctx.fillStyle = 'blue'; ctx.beginPath(); ctx.ellipse(hz.x,hz.y,hz.r,hz.r*0.6,0,0,2*Math.PI); ctx.fill(); break;
+        case 'car': ctx.fillStyle = 'red'; ctx.fillRect(hz.x-hz.r,hz.y-hz.r*0.6,hz.r*2,hz.r*1.2); break;
+        case 'spikes': ctx.fillStyle = 'brown';
+          for (let a = 0; a < 8; a++) {
+            const ang = a / 8 * 2 * Math.PI;
+            const x1 = hz.x + Math.cos(ang) * hz.r * 0.8;
+            const y1 = hz.y + Math.sin(ang) * hz.r * 0.8;
+            const x2 = hz.x + Math.cos(ang) * hz.r;
+            const y2 = hz.y + Math.sin(ang) * hz.r;
+            ctx.beginPath(); ctx.moveTo(hz.x,hz.y); ctx.lineTo(x1,y1); ctx.lineTo(x2,y2); ctx.fill();
+          }
+          break;
+      }
+    }
+    function drawTreat(t) {
+      ctx.fillStyle = 'gold'; ctx.beginPath(); ctx.arc(t.x,t.y,t.r,0,2*Math.PI); ctx.fill();
+      ctx.strokeStyle = '#a57'; ctx.beginPath(); ctx.moveTo(t.x - t.r/2, t.y); ctx.lineTo(t.x + t.r/2, t.y); ctx.stroke();
+    }
+    function drawDog() {
+      ctx.fillStyle = '#886633'; ctx.beginPath(); ctx.ellipse(dog.x,dog.y,dog.r*1.2,dog.r,0,0,2*Math.PI); ctx.fill();
+      ctx.beginPath(); ctx.arc(dog.x+dog.r, dog.y-dog.r*0.2, dog.r*0.7, 0, 2*Math.PI); ctx.fill();
+      ctx.fillStyle = '#664422'; ctx.beginPath(); ctx.ellipse(dog.x+dog.r*1.3, dog.y-dog.r*0.8, dog.r*0.3, dog.r*0.15, Math.PI/4,0,2*Math.PI); ctx.fill();
+      ctx.beginPath(); ctx.ellipse(dog.x+dog.r*0.7, dog.y-dog.r*0.9, dog.r*0.3, dog.r*0.15, -Math.PI/4,0,2*Math.PI); ctx.fill();
+      ctx.fillStyle = '#885522'; for (let dx of [-0.5,0.5]) ctx.fillRect(dog.x+dx*dog.r, dog.y+dog.r*0.5, dog.r*0.3, dog.r*0.7);
+      ctx.beginPath(); ctx.moveTo(dog.x-dog.r*1.1, dog.y);
+      ctx.quadraticCurveTo(dog.x-dog.r*1.5, dog.y-dog.r*0.5, dog.x-dog.r*1.2, dog.y-dog.r*0.2);
+      ctx.strokeStyle = '#664422'; ctx.lineWidth = 6; ctx.stroke();
+      ctx.fillStyle = '#000'; ctx.beginPath(); ctx.arc(dog.x+dog.r*0.9, dog.y-dog.r*0.3, dog.r*0.15,0,2*Math.PI); ctx.fill();
+    }
+
+    function loop(timestamp) {
+      const dt = (timestamp - lastTime) / 1000;
+      lastTime = timestamp;
+      update(dt);
+      draw();
+      if (!gameOver) requestAnimationFrame(loop);
+    }
+
+    // Start game
+    lastTime = performance.now();
+    requestAnimationFrame(loop);
+  </script>
+</body>
+</html>
