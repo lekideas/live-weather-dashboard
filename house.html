@@ -1,0 +1,218 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Wall Drawing Interface</title>
+  <style>
+    body {
+      margin: 0;
+      font-family: sans-serif;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+    }
+    canvas {
+      border: 2px solid #333;
+      margin-top: 1rem;
+      cursor: crosshair;
+    }
+    .controls {
+      margin-top: 1rem;
+      display: flex;
+      flex-wrap: wrap;
+      gap: 1rem;
+      justify-content: center;
+    }
+    button {
+      padding: 0.5rem 1rem;
+      font-size: 1rem;
+      cursor: pointer;
+    }
+  </style>
+</head>
+<body>
+  <h1>Draw Your Walls</h1>
+  <canvas id="drawCanvas" width="800" height="600"></canvas>
+  <div class="controls">
+    <button id="closeShapeBtn">Finish House (Close Shape)</button>
+    <button id="undoBtn">Undo Last Point</button>
+    <button id="addInternalWallBtn">Add Internal Wall</button>
+    <button id="addDoorBtn">Add Door</button>
+    <button id="addWindowBtn">Add Window</button>
+    <button id="addWindBtn">Add Wind Direction</button>
+    <button id="resetBtn">Reset</button>
+  </div>
+
+  <script>
+    const canvas = document.getElementById('drawCanvas');
+    const ctx = canvas.getContext('2d');
+    const closeBtn = document.getElementById('closeShapeBtn');
+    const undoBtn = document.getElementById('undoBtn');
+    const internalWallBtn = document.getElementById('addInternalWallBtn');
+    const doorBtn = document.getElementById('addDoorBtn');
+    const windowBtn = document.getElementById('addWindowBtn');
+    const windBtn = document.getElementById('addWindBtn');
+    const resetBtn = document.getElementById('resetBtn');
+
+    let outerWalls = [], internalWalls = [], doors = [], windows = [], currentPoints = [];
+    let windVector = [];
+    let isShapeClosed = false;
+    let drawingInternal = false, drawingDoor = false, drawingWindow = false, drawingWind = false;
+    let snapCursor = null;
+
+    const SNAP_RADIUS = 10;
+
+    function getSnapPoint(x, y) {
+      const allPoints = [...outerWalls, ...internalWalls.flat(), ...doors.flat(), ...windows.flat()];
+      for (const p of allPoints) {
+        const dx = p.x - x, dy = p.y - y;
+        if (Math.sqrt(dx * dx + dy * dy) <= SNAP_RADIUS) return p;
+      }
+      return { x, y };
+    }
+
+    canvas.addEventListener('mousemove', (e) => {
+      if (!isShapeClosed || (!drawingInternal && !drawingDoor && !drawingWindow && !drawingWind)) return;
+      const rect = canvas.getBoundingClientRect();
+      snapCursor = getSnapPoint(e.clientX - rect.left, e.clientY - rect.top);
+      draw();
+    });
+
+    canvas.addEventListener('click', (e) => {
+      const rect = canvas.getBoundingClientRect();
+      const snapped = getSnapPoint(e.clientX - rect.left, e.clientY - rect.top);
+
+      if (!isShapeClosed) currentPoints.push(snapped);
+      else if (drawingInternal) { internalWalls.push([snapped]); drawingInternal = false; }
+      else if (drawingDoor) { doors.push([snapped]); drawingDoor = false; }
+      else if (drawingWindow) { windows.push([snapped]); drawingWindow = false; }
+      else if (drawingWind) {
+        windVector.push(snapped);
+        if (windVector.length === 2) drawingWind = false;
+      } else {
+        if (internalWalls.at(-1)?.length === 1) internalWalls.at(-1).push(snapped);
+        if (doors.at(-1)?.length === 1) doors.at(-1).push(snapped);
+        if (windows.at(-1)?.length === 1) windows.at(-1).push(snapped);
+      }
+      draw();
+    });
+
+    closeBtn.onclick = () => {
+      if (currentPoints.length > 2 && !isShapeClosed) {
+        outerWalls = [...currentPoints];
+        isShapeClosed = true;
+        draw();
+      }
+    };
+    undoBtn.onclick = () => {
+      if (!isShapeClosed && currentPoints.length) currentPoints.pop();
+      else if (isShapeClosed) {
+        if (windows.at(-1)?.length === 1) windows.pop();
+        else if (doors.at(-1)?.length === 1) doors.pop();
+        else if (internalWalls.at(-1)) {
+          if (internalWalls.at(-1).length > 1) internalWalls.at(-1).pop();
+          else internalWalls.pop();
+        } else if (windVector.length) windVector.pop();
+      }
+      draw();
+    };
+
+    internalWallBtn.onclick = () => { if (isShapeClosed) drawingInternal = true; };
+    doorBtn.onclick = () => { if (isShapeClosed) drawingDoor = true; };
+    windowBtn.onclick = () => { if (isShapeClosed) drawingWindow = true; };
+    windBtn.onclick = () => { if (isShapeClosed) { windVector = []; drawingWind = true; } };
+    resetBtn.onclick = () => {
+      outerWalls = internalWalls = doors = windows = currentPoints = windVector = [];
+      isShapeClosed = drawingInternal = drawingDoor = drawingWindow = drawingWind = false;
+      snapCursor = null;
+      draw();
+    };
+
+    function drawArrow(from, to, color) {
+      const headlen = 10;
+      const dx = to.x - from.x, dy = to.y - from.y;
+      const angle = Math.atan2(dy, dx);
+      ctx.beginPath();
+      ctx.moveTo(from.x, from.y);
+      ctx.lineTo(to.x, to.y);
+      ctx.lineTo(to.x - headlen * Math.cos(angle - Math.PI / 6), to.y - headlen * Math.sin(angle - Math.PI / 6));
+      ctx.moveTo(to.x, to.y);
+      ctx.lineTo(to.x - headlen * Math.cos(angle + Math.PI / 6), to.y - headlen * Math.sin(angle + Math.PI / 6));
+      ctx.strokeStyle = color;
+      ctx.lineWidth = 2;
+      ctx.stroke();
+    }
+
+    function draw() {
+      ctx.clearRect(0, 0, canvas.width, canvas.height);
+      ctx.lineJoin = "round";
+      ctx.lineCap = "round";
+
+      // Outer walls
+      if (outerWalls.length) {
+        ctx.beginPath();
+        outerWalls.forEach((p, i) => i === 0 ? ctx.moveTo(p.x, p.y) : ctx.lineTo(p.x, p.y));
+        ctx.closePath();
+        ctx.strokeStyle = '#007bff';
+        ctx.lineWidth = 6;
+        ctx.stroke();
+      } else {
+        ctx.beginPath();
+        currentPoints.forEach((p, i) => i === 0 ? ctx.moveTo(p.x, p.y) : ctx.lineTo(p.x, p.y));
+        ctx.strokeStyle = '#007bff';
+        ctx.lineWidth = 2;
+        ctx.stroke();
+      }
+
+      // Internal walls
+      internalWalls.forEach(w => {
+        if (w.length < 2) return;
+        ctx.beginPath();
+        w.forEach((p, i) => i === 0 ? ctx.moveTo(p.x, p.y) : ctx.lineTo(p.x, p.y));
+        ctx.strokeStyle = '#ff6600';
+        ctx.lineWidth = 4;
+        ctx.stroke();
+      });
+
+      // Doors
+      doors.forEach(d => {
+        if (d.length < 2) return;
+        ctx.beginPath();
+        ctx.setLineDash([5, 5]);
+        d.forEach((p, i) => i === 0 ? ctx.moveTo(p.x, p.y) : ctx.lineTo(p.x, p.y));
+        ctx.strokeStyle = '#00cc00';
+        ctx.lineWidth = 3;
+        ctx.stroke();
+        ctx.setLineDash([]);
+      });
+
+      // Windows
+      windows.forEach(w => {
+        if (w.length < 2) return;
+        ctx.beginPath();
+        ctx.setLineDash([2, 4]);
+        w.forEach((p, i) => i === 0 ? ctx.moveTo(p.x, p.y) : ctx.lineTo(p.x, p.y));
+        ctx.strokeStyle = '#9999ff';
+        ctx.lineWidth = 3;
+        ctx.stroke();
+        ctx.setLineDash([]);
+      });
+
+      // Wind vector
+      if (windVector.length === 2) drawArrow(windVector[0], windVector[1], '#000');
+
+      // Snap cursor
+      if (snapCursor && (drawingInternal || drawingDoor || drawingWindow || drawingWind)) {
+        ctx.beginPath();
+        ctx.arc(snapCursor.x, snapCursor.y, 6, 0, Math.PI * 2);
+        ctx.strokeStyle = 'red';
+        ctx.lineWidth = 1.5;
+        ctx.stroke();
+      }
+    }
+
+    draw();
+  </script>
+</body>
+</html>
