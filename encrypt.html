@@ -1,0 +1,170 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>One-Time Pad</title>
+  <style>
+    body {
+      font-family: Arial, sans-serif;
+      background: #f9f9f9;
+      padding: 2rem;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+    }
+    .container {
+      background: #fff;
+      padding: 1.5rem;
+      border-radius: 8px;
+      box-shadow: 0 2px 8px rgba(0,0,0,0.1);
+      max-width: 600px;
+      width: 100%;
+    }
+    .field {
+      margin-bottom: 1rem;
+      display: flex;
+      flex-direction: column;
+    }
+    label {
+      margin-bottom: 0.5rem;
+      font-weight: bold;
+    }
+    input[type="text"], textarea {
+      padding: 0.5rem;
+      border: 1px solid #ccc;
+      border-radius: 4px;
+      font-family: monospace;
+      font-size: 1rem;
+    }
+    textarea {
+      resize: vertical;
+      min-height: 100px;
+    }
+    .radio-group {
+      display: flex;
+      gap: 1rem;
+      margin-bottom: 1rem;
+      align-items: center;
+    }
+    button {
+      padding: 0.75rem 1.5rem;
+      font-size: 1rem;
+      background: #0077cc;
+      color: white;
+      border: none;
+      border-radius: 4px;
+      cursor: pointer;
+    }
+    button:hover {
+      background: #005fa3;
+    }
+    .error {
+      color: #cc0000;
+      margin-bottom: 1rem;
+    }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <h1>One-Time Pad</h1>
+    <div class="field">
+      <label>Mode:</label>
+      <div class="radio-group">
+        <label><input type="radio" name="mode" value="encrypt" checked> Encrypt</label>
+        <label><input type="radio" name="mode" value="decrypt"> Decrypt</label>
+      </div>
+    </div>
+    <div class="field">
+      <label for="key">Key:</label>
+      <input type="text" id="key" placeholder="Enter key here">
+    </div>
+    <div class="field">
+      <label for="inputText">Message / Cipher:</label>
+      <textarea id="inputText" placeholder="Enter plaintext or hex ciphertext"></textarea>
+    </div>
+    <div class="error" id="errorMsg"></div>
+    <button id="computeBtn">Compute</button>
+    <div class="field">
+      <label for="outputText">Result:</label>
+      <textarea id="outputText" readonly></textarea>
+    </div>
+  </div>
+
+  <script>
+    const keyInput = document.getElementById('key');
+    const inputText = document.getElementById('inputText');
+    const outputText = document.getElementById('outputText');
+    const computeBtn = document.getElementById('computeBtn');
+    const errorMsg = document.getElementById('errorMsg');
+
+    function xorBytes(msgBytes, keyBytes) {
+      const result = new Uint8Array(msgBytes.length);
+      for (let i = 0; i < msgBytes.length; i++) {
+        result[i] = msgBytes[i] ^ keyBytes[i];
+      }
+      return result;
+    }
+
+    function toUtf8Bytes(str) {
+      return new TextEncoder().encode(str);
+    }
+    function fromUtf8Bytes(bytes) {
+      return new TextDecoder().decode(bytes);
+    }
+
+    function hexToBytes(hex) {
+      const bytes = new Uint8Array(hex.length / 2);
+      for (let i = 0; i < bytes.length; i++) {
+        bytes[i] = parseInt(hex.substr(i * 2, 2), 16);
+      }
+      return bytes;
+    }
+    function bytesToHex(bytes) {
+      return Array.from(bytes).map(b => b.toString(16).padStart(2, '0')).join('');
+    }
+
+    computeBtn.addEventListener('click', () => {
+      errorMsg.textContent = '';
+      const mode = document.querySelector('input[name="mode"]:checked').value;
+      const keyStr = keyInput.value;
+      const text = inputText.value;
+
+      if (!keyStr) {
+        errorMsg.textContent = 'Key cannot be empty.';
+        return;
+      }
+
+      let msgBytes, keyBytes;
+      try {
+        if (mode === 'encrypt') {
+          msgBytes = toUtf8Bytes(text);
+        } else {
+          if (text.length % 2 !== 0) throw new Error('Invalid hex input');
+          msgBytes = hexToBytes(text);
+        }
+        keyBytes = toUtf8Bytes(keyStr);
+
+        // Repeat key if shorter than message
+        if (keyBytes.length < msgBytes.length) {
+          const rep = new Uint8Array(msgBytes.length);
+          for (let i = 0; i < msgBytes.length; i++) {
+            rep[i] = keyBytes[i % keyBytes.length];
+          }
+          keyBytes = rep;
+        }
+      } catch (e) {
+        errorMsg.textContent = 'Error: ' + e.message;
+        return;
+      }
+
+      const resultBytes = xorBytes(msgBytes, keyBytes);
+      if (mode === 'encrypt') {
+        outputText.value = bytesToHex(resultBytes);
+      } else {
+        outputText.value = fromUtf8Bytes(resultBytes);
+      }
+    });
+  </script>
+</body>
+</html>
