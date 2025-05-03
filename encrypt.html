@@ -5,64 +5,17 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>One-Time Pad</title>
   <style>
-    body {
-      font-family: Arial, sans-serif;
-      background: #f9f9f9;
-      padding: 2rem;
-      display: flex;
-      flex-direction: column;
-      align-items: center;
-    }
-    .container {
-      background: #fff;
-      padding: 1.5rem;
-      border-radius: 8px;
-      box-shadow: 0 2px 8px rgba(0,0,0,0.1);
-      max-width: 600px;
-      width: 100%;
-    }
-    .field {
-      margin-bottom: 1rem;
-      display: flex;
-      flex-direction: column;
-    }
-    label {
-      margin-bottom: 0.5rem;
-      font-weight: bold;
-    }
-    input[type="text"], textarea {
-      padding: 0.5rem;
-      border: 1px solid #ccc;
-      border-radius: 4px;
-      font-family: monospace;
-      font-size: 1rem;
-    }
-    textarea {
-      resize: vertical;
-      min-height: 100px;
-    }
-    .radio-group {
-      display: flex;
-      gap: 1rem;
-      margin-bottom: 1rem;
-      align-items: center;
-    }
-    button {
-      padding: 0.75rem 1.5rem;
-      font-size: 1rem;
-      background: #0077cc;
-      color: white;
-      border: none;
-      border-radius: 4px;
-      cursor: pointer;
-    }
-    button:hover {
-      background: #005fa3;
-    }
-    .error {
-      color: #cc0000;
-      margin-bottom: 1rem;
-    }
+    body { font-family: Arial, sans-serif; background: #f9f9f9; padding: 2rem; display: flex; flex-direction: column; align-items: center; }
+    .container { background: #fff; padding: 1.5rem; border-radius: 8px; box-shadow: 0 2px 8px rgba(0,0,0,0.1); max-width: 600px; width: 100%; }
+    .field { margin-bottom: 1rem; display: flex; flex-direction: column; }
+    label { margin-bottom: 0.5rem; font-weight: bold; }
+    input[type="text"], textarea { padding: 0.5rem; border: 1px solid #ccc; border-radius: 4px; font-family: monospace; font-size: 1rem; }
+    textarea { resize: vertical; min-height: 100px; }
+    .radio-group { display: flex; gap: 1rem; margin-bottom: 1rem; align-items: center; }
+    button { padding: 0.75rem 1.5rem; font-size: 1rem; background: #0077cc; color: white; border: none; border-radius: 4px; cursor: pointer; }
+    button:hover { background: #005fa3; }
+    .error { color: #cc0000; margin-bottom: 1rem; }
+    .counter { margin-top: 1rem; font-size: 0.9rem; color: #555; }
   </style>
 </head>
 <body>
@@ -89,8 +42,34 @@
       <label for="outputText">Result:</label>
       <textarea id="outputText" readonly></textarea>
     </div>
+    <div class="counter">Page views: <span id="visitCounter">0</span></div>
   </div>
 
+  <!-- Firebase SDK -->
+  <script type="module">
+    import { initializeApp } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-app.js";
+    import { getDatabase, ref, runTransaction } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-database.js";
+    
+    const firebaseConfig = {
+      apiKey: "AIzaSyDPQGrpUTLzYmk7KglahwCBC3wbQFe95Gg",
+      authDomain: "my-github-pages-counter.firebaseapp.com",
+      databaseURL: "https://my-github-pages-counter-default-rtdb.europe-west1.firebasedatabase.app",
+      projectId: "my-github-pages-counter",
+      storageBucket: "my-github-pages-counter.firebasestorage.app",
+      messagingSenderId: "1051249699552",
+      appId: "1:1051249699552:web:60324950a16d4b2bb5be85",
+      measurementId: "G-6P0E70GZTP"
+    };
+    const app = initializeApp(firebaseConfig);
+    const db = getDatabase(app);
+    const visitsRef = ref(db, 'visits');
+    const counterEl = document.getElementById('visitCounter');
+    runTransaction(visitsRef, current => (current || 0) + 1)
+      .then(result => { counterEl.textContent = result.snapshot.val(); })
+      .catch(err => { console.error('Counter error:', err); });
+  </script>
+
+  <!-- OTP Logic -->
   <script>
     const keyInput = document.getElementById('key');
     const inputText = document.getElementById('inputText');
@@ -100,70 +79,36 @@
 
     function xorBytes(msgBytes, keyBytes) {
       const result = new Uint8Array(msgBytes.length);
-      for (let i = 0; i < msgBytes.length; i++) {
-        result[i] = msgBytes[i] ^ keyBytes[i];
-      }
+      for (let i = 0; i < msgBytes.length; i++) result[i] = msgBytes[i] ^ keyBytes[i];
       return result;
     }
-
-    function toUtf8Bytes(str) {
-      return new TextEncoder().encode(str);
-    }
-    function fromUtf8Bytes(bytes) {
-      return new TextDecoder().decode(bytes);
-    }
-
+    function toUtf8Bytes(str) { return new TextEncoder().encode(str); }
+    function fromUtf8Bytes(bytes) { return new TextDecoder().decode(bytes); }
     function hexToBytes(hex) {
-      const bytes = new Uint8Array(hex.length / 2);
-      for (let i = 0; i < bytes.length; i++) {
-        bytes[i] = parseInt(hex.substr(i * 2, 2), 16);
-      }
+      const bytes = new Uint8Array(hex.length/2);
+      for (let i=0;i<bytes.length;i++) bytes[i] = parseInt(hex.substr(i*2,2),16);
       return bytes;
     }
-    function bytesToHex(bytes) {
-      return Array.from(bytes).map(b => b.toString(16).padStart(2, '0')).join('');
-    }
+    function bytesToHex(bytes) { return Array.from(bytes).map(b=>b.toString(16).padStart(2,'0')).join(''); }
 
     computeBtn.addEventListener('click', () => {
       errorMsg.textContent = '';
       const mode = document.querySelector('input[name="mode"]:checked').value;
       const keyStr = keyInput.value;
       const text = inputText.value;
-
-      if (!keyStr) {
-        errorMsg.textContent = 'Key cannot be empty.';
-        return;
-      }
-
+      if (!keyStr) return errorMsg.textContent = 'Key cannot be empty.';
       let msgBytes, keyBytes;
       try {
-        if (mode === 'encrypt') {
-          msgBytes = toUtf8Bytes(text);
-        } else {
-          if (text.length % 2 !== 0) throw new Error('Invalid hex input');
-          msgBytes = hexToBytes(text);
-        }
+        msgBytes = mode==='encrypt'? toUtf8Bytes(text): hexToBytes(text);
         keyBytes = toUtf8Bytes(keyStr);
-
-        // Repeat key if shorter than message
         if (keyBytes.length < msgBytes.length) {
           const rep = new Uint8Array(msgBytes.length);
-          for (let i = 0; i < msgBytes.length; i++) {
-            rep[i] = keyBytes[i % keyBytes.length];
-          }
+          for (let i=0;i<msgBytes.length;i++) rep[i] = keyBytes[i % keyBytes.length];
           keyBytes = rep;
         }
-      } catch (e) {
-        errorMsg.textContent = 'Error: ' + e.message;
-        return;
-      }
-
-      const resultBytes = xorBytes(msgBytes, keyBytes);
-      if (mode === 'encrypt') {
-        outputText.value = bytesToHex(resultBytes);
-      } else {
-        outputText.value = fromUtf8Bytes(resultBytes);
-      }
+      } catch(e) { return errorMsg.textContent = 'Error: '+e.message; }
+      const result = xorBytes(msgBytes, keyBytes);
+      outputText.value = mode==='encrypt'? bytesToHex(result): fromUtf8Bytes(result);
     });
   </script>
 </body>
