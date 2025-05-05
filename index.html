@@ -16,7 +16,16 @@
     }
     h1 {
       color: #333;
+      margin-bottom: 0.5rem;
+    }
+    p {
       margin-bottom: 1rem;
+      color: #555;
+    }
+    .counter {
+      margin-bottom: 1rem;
+      font-size: 0.9rem;
+      color: #555;
     }
     ul {
       list-style: none;
@@ -43,13 +52,9 @@
 </head>
 <body>
   <h1>Project Index</h1>
-  <p>Visit my pages below:</p>
+  <div class="counter">Page views: <span id="visitCounter">0</span></div>
+  <p>Add links to your pages below:</p>
   <ul>
-    <!-- Example:
-    <li><a href="otp.html">One-Time Pad Tool</a></li>
-    <li><a href="weather-dashboard.html">Weather Dashboard</a></li>
-    -->
-    <!-- Add your links here -->
     <li><a href="https://lekideas.github.io/live-weather-dashboard/encrypt">One-Time Pad Tool</a></li>
     <li><a href="https://lekideas.github.io/live-weather-dashboard/weathercompare">Weather Dashboard</a></li>
     <li><a href="https://lekideas.github.io/live-weather-dashboard/buttongame">Button Game</a></li>
@@ -57,8 +62,30 @@
     <li><a href="https://lekideas.github.io/live-weather-dashboard/walkdog">Walk Dog</a></li>
     <li><a href="https://lekideas.github.io/live-weather-dashboard/house">House Wind Simulation</a></li>
     <li><a href="https://lekideas.github.io/live-weather-dashboard/imagepage">Image</a></li>
-
-    
   </ul>
+
+  <!-- Firebase view counter -->
+  <script type="module">
+    import { initializeApp } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-app.js";
+    import { getDatabase, ref, runTransaction } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-database.js";
+
+    const firebaseConfig = {
+      apiKey: "AIzaSyDPQGrpUTLzYmk7KglahwCBC3wbQFe95Gg",
+      authDomain: "my-github-pages-counter.firebaseapp.com",
+      databaseURL: "https://my-github-pages-counter-default-rtdb.europe-west1.firebasedatabase.app",
+      projectId: "my-github-pages-counter",
+      storageBucket: "my-github-pages-counter.firebasestorage.app",
+      messagingSenderId: "1051249699552",
+      appId: "1:1051249699552:web:60324950a16d4b2bb5be85",
+      measurementId: "G-6P0E70GZTP"
+    };
+    const app = initializeApp(firebaseConfig);
+    const db = getDatabase(app);
+    const counterEl = document.getElementById('visitCounter');
+    const pageRef = ref(db, 'visits_index');
+    runTransaction(pageRef, current => (current || 0) + 1)
+      .then(result => { counterEl.textContent = result.snapshot.val(); })
+      .catch(err => { console.error('Counter error:', err); });
+  </script>
 </body>
 </html>
