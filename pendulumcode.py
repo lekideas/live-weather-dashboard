@@ -1,6 +1,8 @@
 import numpy as np
 import matplotlib.pyplot as plt
 from matplotlib.animation import FuncAnimation
+import matplotlib
+matplotlib.use("module://matplotlib_inline.backend_inline")
 
 # Randomized parameters
 g = 9.81
@@ -74,4 +76,4 @@ anim = FuncAnimation(fig, update, frames=len(t), init_func=init,
                      blit=True, interval=dt*1000)
 
 # Generate JS animation HTML
-html = anim.to_jshtml()
+html = anim.to_html5_video()
