@@ -1,0 +1,38 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Double Pendulum Animation</title>
+  <style>
+    body { margin: 0; padding: 0; display: flex; flex-direction: column; align-items: center; font-family: sans-serif; background: #eef; }
+    h1 { margin: 1rem 0; color: #333; }
+    #animationContainer { width: 90vw; height: 80vh; }
+  </style>
+</head>
+<body>
+  <h1>Double Pendulum Animation</h1>
+  <div id="animationContainer">Loading...</div>
+
+  <!-- Pyodide -->
+  <script src="https://cdn.jsdelivr.net/pyodide/v0.23.2/full/pyodide.js"></script>
+  <script>
+    async function main() {
+      // Load Pyodide runtime
+      const pyodide = await loadPyodide({ indexURL: 'https://cdn.jsdelivr.net/pyodide/v0.23.2/full/' });
+      // Load necessary Python packages
+      await pyodide.loadPackage(['numpy', 'matplotlib']);
+
+      // Fetch and run the pendulum script
+      const response = await fetch('pendulumcode.py');
+      const code = await response.text();
+      await pyodide.runPythonAsync(code);
+
+      // Retrieve the generated HTML/JS animation
+      const animationHtml = pyodide.globals.get('html');
+      document.getElementById('animationContainer').innerHTML = animationHtml;
+    }
+    main();
+  </script>
+</body>
+</html>
