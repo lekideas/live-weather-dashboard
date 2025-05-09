@@ -23,8 +23,8 @@
       // Load necessary Python packages
       await pyodide.loadPackage(['numpy', 'matplotlib']);
 
-      // Fetch and run the pendulum script
-      const response = await fetch('pendulumcode.py');
+      // Fetch and run the pendulum script from raw GitHub URL
+      const response = await fetch('https://raw.githubusercontent.com/lekideas/live-weather-dashboard/main/pendulumcode.py');
       const code = await response.text();
       await pyodide.runPythonAsync(code);
 
