@@ -1,146 +1,125 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-  <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Button Chase Game</title>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Turtle Chase Game</title>
   <style>
-    body {
-      margin: 0;
-      height: 100vh;
-      display: flex;
-      flex-direction: column;
-      align-items: center;
-      justify-content: center;
-      font-family: sans-serif;
-      background: #f2f2f2;
-      overflow: hidden;
-    }
-    #gameArea {
-      position: relative;
-      width: 100vw;
-      height: 70vh;
-      border: 2px dashed #aaa;
-      margin-bottom: 1rem;
-      overflow: hidden;
-    }
-    #chaseButton {
-      position: absolute;
-      display: flex;
-      align-items: center;
-      justify-content: center;
-      padding: 0;
-      border: none;
-      background-color: #007bff;
-      color: white;
-      cursor: pointer;
-      transition: all 0.3s ease;
-      transform: translate(-50%, -50%);
-    }
-    #counter, #globalCounter {
-      font-size: 1.2rem;
-      margin: 0.25rem;
-    }
-    #gameOver {
-      color: red;
-      font-weight: bold;
-      margin-top: 1rem;
-    }
+    body { margin:0; padding:0; display:flex; flex-direction:column; align-items:center; font-family:sans-serif; background:#f0f8ff; }
+    h1 { margin:1rem 0; }
+    #gameArea { position:relative; width:100vw; height:70vh; border:2px dashed #888; background:#fff; overflow:hidden; }
+    .entity { position:absolute; cursor:pointer; user-select:none; }
+    .turtle { font-size:3rem; }
+    .distractor { font-size:2rem; }
+    #timerBarContainer { width:100vw; height:10px; background:#ddd; margin-top:5px; }
+    #timerBar { width:100%; height:100%; background: linear-gradient(to right, yellow, blue); }
+    #controls { margin:1rem; display:flex; gap:1rem; }
+    button { padding:0.5rem 1rem; border:none; background:#007bff; color:#fff; border-radius:4px; cursor:pointer; }
+    button:hover { background:#0056b3; }
+    #counter, #globalCounter { margin:0.25rem; }
   </style>
 </head>
 <body>
-  <h1>Button Chase Game</h1>
-  <div id="gameArea">
-    <button id="chaseButton">Catch me!</button>
+  <h1>Turtle Chase Game</h1>
+  <div id="counter">Your score: 0</div>
+  <div id="globalCounter">Global turtles found: 0</div>
+  <div id="controls">
+    <button id="resetBtn">Reset Game</button>
   </div>
-  <div id="counter">You've caught me 0 times!</div>
-  <div id="globalCounter">Everyone has caught me 0 times!</div>
-  <div id="gameOver"></div>
+  <div id="gameArea"></div>
+  <div id="timerBarContainer"><div id="timerBar"></div></div>
 
-  <script>
-    const button = document.getElementById("chaseButton");
-    const counterText = document.getElementById("counter");
-    const globalCounterText = document.getElementById("globalCounter");
-    const gameArea = document.getElementById("gameArea");
-    const gameOverText = document.getElementById("gameOver");
+  <script type="module">
+    import { initializeApp } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-app.js";
+    import { getDatabase, ref, runTransaction, push, get, query, orderByChild, limitToLast } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-database.js";
 
-    let personalCount = parseInt(localStorage.getItem("chaseCount")) || 0;
-    let globalCount = parseInt(localStorage.getItem("globalChaseCount")) || 0;
-    let currentTimeLimit = 3000; // starting time limit in ms
-    let timeoutID = null;
-    let shrinkIntervalID = null;
+    // Firebase
+    const config={apiKey:"AIzaSyDPQGrpUTLzYmk7KglahwCBC3wbQFe95Gg",authDomain:"my-github-pages-counter.firebaseapp.com",databaseURL:"https://my-github-pages-counter-default-rtdb.europe-west1.firebasedatabase.app",projectId:"my-github-pages-counter",storageBucket:"my-github-pages-counter.firebasestorage.app",messagingSenderId:"1051249699552",appId:"1:1051249699552:web:60324950a16d4b2bb5be85"};
+    const app=initializeApp(config),db=getDatabase(app);
+    const globalRef=ref(db,'globalTurtleCount'), leaderboardRef=ref(db,'leaderboard');
 
-    function updateText() {
-      counterText.textContent = `You've caught me ${personalCount} times!`;
-      globalCounterText.textContent = `Everyone has caught me ${globalCount} times!`;
-    }
+    // DOM
+    const area=document.getElementById('gameArea');
+    const counterEl=document.getElementById('counter');
+    const globalEl=document.getElementById('globalCounter');
+    const resetBtn=document.getElementById('resetBtn');
+    const timerBar=document.getElementById('timerBar');
 
-    function endGame() {
-      clearTimeout(timeoutID);
-      clearInterval(shrinkIntervalID);
-      gameOverText.textContent = "⏱️ Game over! You didn't catch the button in time.";
-      button.disabled = true;
-      button.style.display = "none";
-    }
+    // State
+    let personal= parseInt(localStorage.getItem('turtleScore'))||0;
+    let level=1, timeLimit=10, startTime;
+    const entities=[]; // {el,type,vx,vy}
 
-    function moveButton() {
-      clearTimeout(timeoutID);
-      clearInterval(shrinkIntervalID);
+    function updateDisplay(){ counterEl.textContent=`Your score: ${personal}`; get(globalRef).then(s=>{globalEl.textContent=`Global turtles found: ${s.val()||0}`;}); }
 
-      const areaWidth = gameArea.clientWidth;
-      const areaHeight = gameArea.clientHeight;
+    function randPos(w,h){ return { x:Math.random()*(area.clientWidth-w), y:Math.random()*(area.clientHeight-h) }; }
+    function randVel(){ const angle=Math.random()*2*Math.PI; return { vx:Math.cos(angle)*100, vy:Math.sin(angle)*100 }; }
 
-      const randomX = Math.floor(Math.random() * areaWidth);
-      const randomY = Math.floor(Math.random() * areaHeight);
-
-      button.style.left = `${randomX}px`;
-      button.style.top = `${randomY}px`;
-
-      // Random polygon shapes using clip-path
-      const shapes = [
-        "circle(50% at 50% 50%)", // circle
-        "polygon(50% 0%, 0% 100%, 100% 100%)", // triangle
-        "polygon(50% 0%, 100% 38%, 82% 100%, 18% 100%, 0% 38%)", // pentagon
-        "polygon(25% 0%, 75% 0%, 100% 50%, 75% 100%, 25% 100%, 0% 50%)", // hexagon
-        "polygon(50% 0%, 100% 25%, 100% 75%, 50% 100%, 0% 75%, 0% 25%)" // hexagon variation
-      ];
-      button.style.clipPath = shapes[Math.floor(Math.random() * shapes.length)];
-
-      timeoutID = setTimeout(endGame, currentTimeLimit);
-
-      let initialSize = 80;
-      button.style.width = `${initialSize}px`;
-      button.style.height = `${initialSize}px`;
-      button.style.fontSize = `${initialSize / 4}px`;
-
-      let startTime = Date.now();
-      shrinkIntervalID = setInterval(() => {
-        const elapsed = Date.now() - startTime;
-        const progress = Math.min(elapsed / currentTimeLimit, 1);
-        const newSize = initialSize * (1 - progress);
-        button.style.width = `${newSize}px`;
-        button.style.height = `${newSize}px`;
-        button.style.fontSize = `${newSize / 4}px`;
-        if (progress >= 1) {
-          clearInterval(shrinkIntervalID);
+    function spawn(type){
+      const el=document.createElement('div'); el.className='entity '+type;
+      el.textContent = type==='turtle'?'🐢':['🐙','⛵','🌊','🦀'][Math.floor(Math.random()*4)];
+      area.appendChild(el);
+      const rect=el.getBoundingClientRect();
+      const pos=randPos(rect.width,rect.height);
+      el.style.left=pos.x+'px'; el.style.top=pos.y+'px';
+      const vel=randVel();
+      const obj={el,type,vx:vel.vx,vy:vel.vy};
+      el.onclick=()=>{
+        if(type==='turtle') catchTurtle(obj);
+        else{ // distractor clicked
+          spawn('distractor'); spawn('distractor');
         }
-      }, 30);
+      };
+      entities.push(obj);
     }
 
-    button.addEventListener("click", () => {
-      personalCount++;
-      globalCount++;
-      currentTimeLimit = Math.max(500, currentTimeLimit - 150); // shrink the time limit
+    function catchTurtle(obj){
+      personal++; localStorage.setItem('turtleScore',personal);
+      runTransaction(globalRef,c=> (c||0)+1);
+      updateDisplay();
+      // leaderboard
+      get(query(leaderboardRef,orderByChild('score'),limitToLast(1))).then(snap=>{
+        const low=snap.exists()?Object.values(snap.val())[0].score:0;
+        if(personal>low){ const name=prompt('High score! Enter name:'); if(name) push(leaderboardRef,{name,score:personal,date:new Date().toISOString()}); }
+      });
+      nextLevel();
+    }
 
-      localStorage.setItem("chaseCount", personalCount);
-      localStorage.setItem("globalChaseCount", globalCount);
-      updateText();
-      moveButton();
-    });
+    function clearEntities(){ entities.forEach(o=>area.removeChild(o.el)); entities.length=0; }
+    function nextLevel(){ clearEntities(); level++; timeLimit = Math.max(1.5, 15 - level);
+      spawn('turtle'); for(let i=0;i<level;i++) spawn('distractor');
+      startTime=performance.now(); timerBar.style.width='100%';
+    }
 
-    // Init
-    updateText();
-    moveButton();
+    // Movement and timer loop
+    function animate(time){
+      const dt=(time-startTime)/1000;
+      const frac=Math.min(1,dt/timeLimit);
+      timerBar.style.width=(1-frac)*100+'%';
+      // Update positions
+      entities.forEach(o=>{
+        let x=o.el.offsetLeft + o.vx*( (time - (o.lastT||time))/1000 );
+        let y=o.el.offsetTop + o.vy*((time-(o.lastT||time))/1000);
+        o.lastT=time;
+        const rw=area.clientWidth - o.el.offsetWidth;
+        const rh=area.clientHeight - o.el.offsetHeight;
+        if(x<0||x>rw){ o.vx*=-1; x=Math.max(0,Math.min(rw,x)); }
+        if(y<0||y>rh){ o.vy*=-1; y=Math.max(0,Math.min(rh,y)); }
+        o.el.style.left=x+'px'; o.el.style.top=y+'px';
+      });
+      if(dt<timeLimit) requestAnimationFrame(animate);
+      else nextLevel();
+    }
+
+    resetBtn.onclick = () => {
+      personal = 0; localStorage.setItem('turtleScore', 0);
+      runTransaction(globalRef, () => 0);
+      level = 0; // reset to 0 so nextLevel sets to 1
+      updateDisplay(); clearEntities(); nextLevel(); requestAnimationFrame(animate);
+    };
+
+    // Start game
+    updateDisplay(); nextLevel(); requestAnimationFrame(animate);
   </script>
 </body>
 </html>
