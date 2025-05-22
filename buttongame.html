@@ -16,15 +16,18 @@
     #controls { margin:1rem; display:flex; gap:1rem; }
     button { padding:0.5rem 1rem; border:none; background:#007bff; color:#fff; border-radius:4px; cursor:pointer; }
     button:hover { background:#0056b3; }
-    #counter, #globalCounter { margin:0.25rem; }
+    #counter, #highScore, #globalCounter { margin:0.25rem; }
   </style>
 </head>
 <body>
   <h1>Turtle Chase Game</h1>
   <div id="counter">Your score: 0</div>
+  <div id="highScore">Your high score: 0</div>
   <div id="globalCounter">Global turtles found: 0</div>
   <div id="controls">
     <button id="resetBtn">Reset Game</button>
+    <button id="debugHighscoreBtn">Debug Highscore</button>
+    <button id="debugShowLeaderboardBtn">Show Leaderboard</button>
   </div>
   <div id="gameArea"></div>
   <div id="timerBarContainer"><div id="timerBar"></div></div>
@@ -33,93 +36,166 @@
     import { initializeApp } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-app.js";
     import { getDatabase, ref, runTransaction, push, get, query, orderByChild, limitToLast } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-database.js";
 
-    // Firebase
-    const config={apiKey:"AIzaSyDPQGrpUTLzYmk7KglahwCBC3wbQFe95Gg",authDomain:"my-github-pages-counter.firebaseapp.com",databaseURL:"https://my-github-pages-counter-default-rtdb.europe-west1.firebasedatabase.app",projectId:"my-github-pages-counter",storageBucket:"my-github-pages-counter.firebasestorage.app",messagingSenderId:"1051249699552",appId:"1:1051249699552:web:60324950a16d4b2bb5be85"};
-    const app=initializeApp(config),db=getDatabase(app);
-    const globalRef=ref(db,'globalTurtleCount'), leaderboardRef=ref(db,'leaderboard');
+    // Firebase config
+    const config = { apiKey:"AIzaSyDPQGrpUTLzYmk7KglahwCBC3wbQFe95Gg", authDomain:"my-github-pages-counter.firebaseapp.com", databaseURL:"https://my-github-pages-counter-default-rtdb.europe-west1.firebasedatabase.app", projectId:"my-github-pages-counter", storageBucket:"my-github-pages-counter.firebasedatabase.app", messagingSenderId:"1051249699552", appId:"1:1051249699552:web:60324950a16d4b2bb5be85" };
+    const app = initializeApp(config);
+    const db = getDatabase(app);
+    const globalRef = ref(db, 'globalTurtleCount');
+    const leaderboardRef = ref(db, 'leaderboard');
 
-    // DOM
-    const area=document.getElementById('gameArea');
-    const counterEl=document.getElementById('counter');
-    const globalEl=document.getElementById('globalCounter');
-    const resetBtn=document.getElementById('resetBtn');
-    const timerBar=document.getElementById('timerBar');
+    // DOM refs
+    const area = document.getElementById('gameArea');
+    const counterEl = document.getElementById('counter');
+    const highScoreEl = document.getElementById('highScore');
+    const globalEl = document.getElementById('globalCounter');
+    const resetBtn = document.getElementById('resetBtn');
+    const timerBar = document.getElementById('timerBar');
 
-    // State
-    let personal= parseInt(localStorage.getItem('turtleScore'))||0;
-    let level=1, timeLimit=10, startTime;
-    const entities=[]; // {el,type,vx,vy}
+    // Game state
+    let personal = parseInt(localStorage.getItem('turtleScore')) || 0;
+    let highScore = parseInt(localStorage.getItem('turtleHigh')) || 0;
+    let level = 1;
+    let timeLimit = 1.5;
+    let startTime;
+    const entities = [];
+    let animFrame;
 
-    function updateDisplay(){ counterEl.textContent=`Your score: ${personal}`; get(globalRef).then(s=>{globalEl.textContent=`Global turtles found: ${s.val()||0}`;}); }
+    function updateDisplay() {
+      counterEl.textContent = `Your score: ${personal}`;
+      highScoreEl.textContent = `Your high score: ${highScore}`;
+      get(globalRef).then(snap => {
+        globalEl.textContent = `Global turtles found: ${snap.val() || 0}`;
+      });
+    }
 
-    function randPos(w,h){ return { x:Math.random()*(area.clientWidth-w), y:Math.random()*(area.clientHeight-h) }; }
-    function randVel(){ const angle=Math.random()*2*Math.PI; return { vx:Math.cos(angle)*100, vy:Math.sin(angle)*100 }; }
+    function randPos(w, h) {
+      return { x: Math.random() * (area.clientWidth - w), y: Math.random() * (area.clientHeight - h) };
+    }
+    function randVel() {
+      const angle = Math.random() * 2 * Math.PI;
+      return { vx: Math.cos(angle) * 100, vy: Math.sin(angle) * 100 };
+    }
 
-    function spawn(type){
-      const el=document.createElement('div'); el.className='entity '+type;
-      el.textContent = type==='turtle'?'🐢':['🐙','⛵','🌊','🦀'][Math.floor(Math.random()*4)];
+    function spawn(type) {
+      const el = document.createElement('div');
+      el.className = 'entity ' + type;
+      el.textContent = type === 'turtle' ? '🐢' : ['🐙','⛵','🌊','🦀'][Math.floor(Math.random()*4)];
       area.appendChild(el);
-      const rect=el.getBoundingClientRect();
-      const pos=randPos(rect.width,rect.height);
-      el.style.left=pos.x+'px'; el.style.top=pos.y+'px';
-      const vel=randVel();
-      const obj={el,type,vx:vel.vx,vy:vel.vy};
-      el.onclick=()=>{
-        if(type==='turtle') catchTurtle(obj);
-        else{ // distractor clicked
-          spawn('distractor'); spawn('distractor');
-        }
-      };
+      const { width: w, height: h } = el.getBoundingClientRect();
+      const pos = randPos(w, h);
+      el.style.left = pos.x + 'px';
+      el.style.top = pos.y + 'px';
+      const vel = randVel();
+      const obj = { el, type, vx: vel.vx, vy: vel.vy, lastT: null };
+      el.onclick = () => type === 'turtle' ? catchTurtle(obj) : (spawn('distractor'), spawn('distractor'));
       entities.push(obj);
     }
 
-    function catchTurtle(obj){
-      personal++; localStorage.setItem('turtleScore',personal);
-      runTransaction(globalRef,c=> (c||0)+1);
+    function catchTurtle(obj) {
+      removeEntity(obj);
+      personal++;
+      localStorage.setItem('turtleScore', personal);
+      if (personal > highScore) {
+        highScore = personal;
+        localStorage.setItem('turtleHigh', highScore);
+        get(query(leaderboardRef, orderByChild('score'), limitToLast(1))).then(snap => {
+          const low = snap.exists() ? Object.values(snap.val())[0].score : 0;
+          if (personal > low) {
+            const name = prompt('High score! Enter name:');
+            if (name) {
+              push(leaderboardRef, { name, score: personal, date: new Date().toISOString() });
+              showLeaderboard();
+            }
+          }
+        });
+      }
+      runTransaction(globalRef, cur => (cur||0) + 1);
       updateDisplay();
-      // leaderboard
-      get(query(leaderboardRef,orderByChild('score'),limitToLast(1))).then(snap=>{
-        const low=snap.exists()?Object.values(snap.val())[0].score:0;
-        if(personal>low){ const name=prompt('High score! Enter name:'); if(name) push(leaderboardRef,{name,score:personal,date:new Date().toISOString()}); }
-      });
       nextLevel();
     }
 
-    function clearEntities(){ entities.forEach(o=>area.removeChild(o.el)); entities.length=0; }
-    function nextLevel(){ clearEntities(); level++; timeLimit = Math.max(1.5, 15 - level);
-      spawn('turtle'); for(let i=0;i<level;i++) spawn('distractor');
-      startTime=performance.now(); timerBar.style.width='100%';
+    function removeEntity(obj) {
+      area.removeChild(obj.el);
+      const i = entities.indexOf(obj);
+      if (i !== -1) entities.splice(i, 1);
     }
 
-    // Movement and timer loop
-    function animate(time){
-      const dt=(time-startTime)/1000;
-      const frac=Math.min(1,dt/timeLimit);
-      timerBar.style.width=(1-frac)*100+'%';
-      // Update positions
-      entities.forEach(o=>{
-        let x=o.el.offsetLeft + o.vx*( (time - (o.lastT||time))/1000 );
-        let y=o.el.offsetTop + o.vy*((time-(o.lastT||time))/1000);
-        o.lastT=time;
-        const rw=area.clientWidth - o.el.offsetWidth;
-        const rh=area.clientHeight - o.el.offsetHeight;
-        if(x<0||x>rw){ o.vx*=-1; x=Math.max(0,Math.min(rw,x)); }
-        if(y<0||y>rh){ o.vy*=-1; y=Math.max(0,Math.min(rh,y)); }
-        o.el.style.left=x+'px'; o.el.style.top=y+'px';
-      });
-      if(dt<timeLimit) requestAnimationFrame(animate);
-      else nextLevel();
+    function clearAllEntities() {
+      while (entities.length) removeEntity(entities[0]);
+    }
+
+    function nextLevel() {
+      clearAllEntities();
+      level++;
+      timeLimit = Math.max(1, 1.5 - (level-1)*0.1);
+      spawn('turtle');
+      for (let i = 0; i < Math.min(level, 15); i++) spawn('distractor');
+      startTime = performance.now();
+    }
+
+    function animate(time) {
+      const dt = (time - startTime) / 1000;
+      const frac = Math.min(1, dt / timeLimit);
+      timerBar.style.width = (1 - frac) * 100 + '%';
+      for (const o of entities) {
+        const elapsed = (time - (o.lastT || time)) / 1000;
+        o.lastT = time;
+        let x = o.el.offsetLeft + o.vx * elapsed;
+        let y = o.el.offsetTop + o.vy * elapsed;
+        const rw = area.clientWidth - o.el.offsetWidth;
+        const rh = area.clientHeight - o.el.offsetHeight;
+        if (x < 0 || x > rw) { o.vx *= -1; x = Math.max(0, Math.min(rw, x)); }
+        if (y < 0 || y > rh) { o.vy *= -1; y = Math.max(0, Math.min(rh, y)); }
+        o.el.style.left = x + 'px';
+        o.el.style.top = y + 'px';
+      }
+      if (dt < timeLimit) {
+        animFrame = requestAnimationFrame(animate);
+      } else {
+        clearAllEntities();
+        cancelAnimationFrame(animFrame);
+        showLeaderboard();
+      }
     }
 
     resetBtn.onclick = () => {
-      personal = 0; localStorage.setItem('turtleScore', 0);
-      runTransaction(globalRef, () => 0);
-      level = 0; // reset to 0 so nextLevel sets to 1
-      updateDisplay(); clearEntities(); nextLevel(); requestAnimationFrame(animate);
+      personal = 0;
+      localStorage.setItem('turtleScore', 0);
+      level = 0; // so nextLevel sets to 1
+      clearAllEntities();
+      updateDisplay();
+      nextLevel();
+      animFrame = requestAnimationFrame(animate);
+    };
+    // Debug highscore: prompt for name and score, push to leaderboard
+    document.getElementById('debugHighscoreBtn').onclick = () => {
+      const name = prompt('Debug: Enter name for high score record:');
+      const scoreStr = prompt('Debug: Enter score number:');
+      const score = parseInt(scoreStr, 10);
+      if (name && !isNaN(score)) {
+        push(leaderboardRef, { name, score, date: new Date().toISOString() });
+        alert(`Debug: Pushed ${name} with score ${score}`);
+      }
+    };
+    // Debug show leaderboard
+    document.getElementById('debugShowLeaderboardBtn').onclick = () => {
+      showLeaderboard();
     };
 
-    // Start game
-    updateDisplay(); nextLevel(); requestAnimationFrame(animate);
+    function showLeaderboard() {
+      get(query(leaderboardRef, orderByChild('score'), limitToLast(10))).then(snap => {
+        const arr = snap.exists() ? Object.values(snap.val()) : [];
+        arr.sort((a, b) => b.score - a.score);
+        let msg = '--- Leaderboard ---\n';
+        arr.forEach((e, i) => msg += `${i+1}. ${e.name}: ${e.score} (${new Date(e.date).toLocaleDateString()})\n`);
+        alert(msg);
+      });
+    }
+
+    // Start
+    updateDisplay();
+    nextLevel();
+    animFrame = requestAnimationFrame(animate);
   </script>
 </body>
 </html>
