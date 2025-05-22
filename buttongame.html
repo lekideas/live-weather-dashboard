@@ -132,9 +132,9 @@
     function nextLevel() {
       clearAllEntities();
       level++;
-      timeLimit = Math.max(1.5, 15 - (level-1)*0.1);
+      timeLimit = Math.max(1.5, 15 - (level-1)*1);
       spawn('turtle');
-      for (let i = 0; i < Math.min(level, 15); i++) spawn('distractor');
+      for (let i = 0; i < level; i++) spawn('distractor');
       startTime = performance.now();
     }
 
