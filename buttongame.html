@@ -26,8 +26,7 @@
   <div id="globalCounter">Global turtles found: 0</div>
   <div id="controls">
     <button id="resetBtn">Reset Game</button>
-    <button id="debugHighscoreBtn">Debug Highscore</button>
-    <button id="debugShowLeaderboardBtn">Show Leaderboard</button>
+    <button id="showLeaderboardBtn">Show Leaderboard</button>
   </div>
   <div id="gameArea"></div>
   <div id="timerBarContainer"><div id="timerBar"></div></div>
@@ -37,7 +36,15 @@
     import { getDatabase, ref, runTransaction, push, get, query, orderByChild, limitToLast } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-database.js";
 
     // Firebase config
-    const config = { apiKey:"AIzaSyDPQGrpUTLzYmk7KglahwCBC3wbQFe95Gg", authDomain:"my-github-pages-counter.firebaseapp.com", databaseURL:"https://my-github-pages-counter-default-rtdb.europe-west1.firebasedatabase.app", projectId:"my-github-pages-counter", storageBucket:"my-github-pages-counter.firebasedatabase.app", messagingSenderId:"1051249699552", appId:"1:1051249699552:web:60324950a16d4b2bb5be85" };
+    const config = {
+      apiKey: "AIzaSyDPQGrpUTLzYmk7KglahwCBC3wbQFe95Gg",
+      authDomain: "my-github-pages-counter.firebaseapp.com",
+      databaseURL: "https://my-github-pages-counter-default-rtdb.europe-west1.firebasedatabase.app",
+      projectId: "my-github-pages-counter",
+      storageBucket: "my-github-pages-counter.firebasedatabase.app",
+      messagingSenderId: "1051249699552",
+      appId: "1:1051249699552:web:60324950a16d4b2bb5be85"
+    };
     const app = initializeApp(config);
     const db = getDatabase(app);
     const globalRef = ref(db, 'globalTurtleCount');
@@ -49,13 +56,14 @@
     const highScoreEl = document.getElementById('highScore');
     const globalEl = document.getElementById('globalCounter');
     const resetBtn = document.getElementById('resetBtn');
+    const showLbBtn = document.getElementById('showLeaderboardBtn');
     const timerBar = document.getElementById('timerBar');
 
     // Game state
     let personal = parseInt(localStorage.getItem('turtleScore')) || 0;
     let highScore = parseInt(localStorage.getItem('turtleHigh')) || 0;
     let level = 1;
-    let timeLimit = 1.5;
+    let timeLimit = 15; // start at 15 seconds
     let startTime;
     const entities = [];
     let animFrame;
@@ -87,7 +95,10 @@
       el.style.top = pos.y + 'px';
       const vel = randVel();
       const obj = { el, type, vx: vel.vx, vy: vel.vy, lastT: null };
-      el.onclick = () => type === 'turtle' ? catchTurtle(obj) : (spawn('distractor'), spawn('distractor'));
+      el.onclick = () => {
+        if (type === 'turtle') catchTurtle(obj);
+        else { spawn('distractor'); spawn('distractor'); }
+      };
       entities.push(obj);
     }
 
@@ -98,20 +109,14 @@
       if (personal > highScore) {
         highScore = personal;
         localStorage.setItem('turtleHigh', highScore);
-        get(query(leaderboardRef, orderByChild('score'), limitToLast(1))).then(snap => {
-          const low = snap.exists() ? Object.values(snap.val())[0].score : 0;
-          if (personal > low) {
-            const name = prompt('High score! Enter name:');
-            if (name) {
-              push(leaderboardRef, { name, score: personal, date: new Date().toISOString() });
-              showLeaderboard();
-            }
-          }
-        });
       }
       runTransaction(globalRef, cur => (cur||0) + 1);
       updateDisplay();
       nextLevel();
+      // restart timer
+      cancelAnimationFrame(animFrame);
+      startTime = performance.now();
+      animFrame = requestAnimationFrame(animate);
     }
 
     function removeEntity(obj) {
@@ -127,7 +132,7 @@
     function nextLevel() {
       clearAllEntities();
       level++;
-      timeLimit = Math.max(1, 1.5 - (level-1)*0.1);
+      timeLimit = Math.max(1.5, 15 - (level-1)*0.1);
       spawn('turtle');
       for (let i = 0; i < Math.min(level, 15); i++) spawn('distractor');
       startTime = performance.now();
@@ -137,7 +142,7 @@
       const dt = (time - startTime) / 1000;
       const frac = Math.min(1, dt / timeLimit);
       timerBar.style.width = (1 - frac) * 100 + '%';
-      for (const o of entities) {
+      entities.forEach(o => {
         const elapsed = (time - (o.lastT || time)) / 1000;
         o.lastT = time;
         let x = o.el.offsetLeft + o.vx * elapsed;
@@ -148,63 +153,54 @@
         if (y < 0 || y > rh) { o.vy *= -1; y = Math.max(0, Math.min(rh, y)); }
         o.el.style.left = x + 'px';
         o.el.style.top = y + 'px';
-      }
+      });
       if (dt < timeLimit) {
         animFrame = requestAnimationFrame(animate);
       } else {
         clearAllEntities();
         cancelAnimationFrame(animFrame);
-        showLeaderboard();
+        // After failure, high-score check
+        get(query(leaderboardRef, orderByChild('score'), limitToLast(10))).then(snap => {
+          const data = snap.val();
+          const arr = data ? Object.values(data) : [];
+          arr.sort((a,b) => b.score - a.score);
+          const lowest = arr.length === 10 ? arr[arr.length-1].score : 0;
+          if (personal > lowest) {
+            const name = prompt('New high score! Enter your name:');
+            if (name) push(leaderboardRef, { name, score: personal, date: new Date().toISOString() });
+          }
+        }).finally(() => showLeaderboard());
       }
     }
 
     resetBtn.onclick = () => {
       personal = 0;
       localStorage.setItem('turtleScore', 0);
-      level = 0; // so nextLevel sets to 1
+      level = 1;
       clearAllEntities();
       updateDisplay();
+      timeLimit = 15;
+      cancelAnimationFrame(animFrame);
       nextLevel();
       animFrame = requestAnimationFrame(animate);
     };
 
-    // Debug buttons
-    document.getElementById('debugHighscoreBtn').onclick = () => {
-      const name = prompt('Debug: Enter name for high score record:');
-      const scoreStr = prompt('Debug: Enter score number:');
-      const score = parseInt(scoreStr, 10);
-      if (name && !isNaN(score)) {
-        push(leaderboardRef, { name, score, date: new Date().toISOString() });
-        alert(`Debug: Pushed ${name} with score ${score}`);
-      }
-    };
-    document.getElementById('debugShowLeaderboardBtn').onclick = () => { showLeaderboard(); };
+    showLbBtn.onclick = showLeaderboard;
 
     function showLeaderboard() {
-      // Fetch top 10 by score
-      alert('Fetching leaderboard...');
       get(query(leaderboardRef, orderByChild('score'), limitToLast(10)))
         .then(snap => {
           const data = snap.val();
-          if (!data) {
-            alert('No leaderboard entries yet.');
-            return;
-          }
+          if (!data) return alert('No leaderboard entries yet.');
           const arr = Object.values(data);
-          arr.sort((a, b) => b.score - a.score);
-          let msg = `--- Leaderboard ---\n`;
-          arr.forEach((e, i) => {
-            msg += `${i+1}. ${e.name}: ${e.score} (${new Date(e.date).toLocaleDateString()})\n`;
-          });
+          arr.sort((a,b) => b.score - a.score);
+          let msg = '--- Leaderboard ---\n';
+          arr.forEach((e,i) => msg += `${i+1}. ${e.name}: ${e.score} (${new Date(e.date).toLocaleDateString()})\n`);
           alert(msg);
-        })
-        .catch(err => {
-          alert('Error reading leaderboard: ' + err.message);
-          console.error(err);
         });
     }
 
-    // Start
+    // Start game
     updateDisplay();
     nextLevel();
     animFrame = requestAnimationFrame(animate);
