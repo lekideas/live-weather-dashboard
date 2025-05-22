@@ -167,7 +167,8 @@
       nextLevel();
       animFrame = requestAnimationFrame(animate);
     };
-    // Debug highscore: prompt for name and score, push to leaderboard
+
+    // Debug buttons
     document.getElementById('debugHighscoreBtn').onclick = () => {
       const name = prompt('Debug: Enter name for high score record:');
       const scoreStr = prompt('Debug: Enter score number:');
@@ -177,19 +178,30 @@
         alert(`Debug: Pushed ${name} with score ${score}`);
       }
     };
-    // Debug show leaderboard
-    document.getElementById('debugShowLeaderboardBtn').onclick = () => {
-      showLeaderboard();
-    };
+    document.getElementById('debugShowLeaderboardBtn').onclick = () => { showLeaderboard(); };
 
     function showLeaderboard() {
-      get(query(leaderboardRef, orderByChild('score'), limitToLast(10))).then(snap => {
-        const arr = snap.exists() ? Object.values(snap.val()) : [];
-        arr.sort((a, b) => b.score - a.score);
-        let msg = '--- Leaderboard ---\n';
-        arr.forEach((e, i) => msg += `${i+1}. ${e.name}: ${e.score} (${new Date(e.date).toLocaleDateString()})\n`);
-        alert(msg);
-      });
+      // Fetch top 10 by score
+      alert('Fetching leaderboard...');
+      get(query(leaderboardRef, orderByChild('score'), limitToLast(10)))
+        .then(snap => {
+          const data = snap.val();
+          if (!data) {
+            alert('No leaderboard entries yet.');
+            return;
+          }
+          const arr = Object.values(data);
+          arr.sort((a, b) => b.score - a.score);
+          let msg = `--- Leaderboard ---\n`;
+          arr.forEach((e, i) => {
+            msg += `${i+1}. ${e.name}: ${e.score} (${new Date(e.date).toLocaleDateString()})\n`;
+          });
+          alert(msg);
+        })
+        .catch(err => {
+          alert('Error reading leaderboard: ' + err.message);
+          console.error(err);
+        });
     }
 
     // Start
