@@ -5,65 +5,120 @@
   <title>Tennis Racket Tension Estimator</title>
   <style>
     body { font-family: sans-serif; text-align: center; padding: 2rem; }
-    button { font-size: 1rem; padding: 0.5rem 1rem; margin: 1rem; }
-    #freq, #tension { font-size: 2rem; margin: 1rem; }
+    button, input { font-size: 1rem; padding: 0.5rem; margin: 0.5rem; }
+    #freq, #tension, #manualFreq, #manualTension { font-size: 1.5rem; margin: 0.5rem; }
+    .section { border: 1px solid #ccc; border-radius: 8px; padding: 1rem; margin: 1rem auto; max-width: 400px; }
   </style>
 </head>
 <body>
   <h1>Tennis Racket String Tension Estimator</h1>
-  <button id="startBtn">Start Listening</button>
-  <button id="stopBtn" disabled>Stop Listening</button>
-  <div id="freq">Frequency: -- Hz</div>
-  <div id="tension">Tension: -- kg</div>
+
+  <div class="section">
+    <h2>Auto Mode</h2>
+    <button id="startAutoBtn">Start Listening</button>
+    <button id="stopAutoBtn" disabled>Stop Listening</button>
+    <div id="freq">Frequency: -- Hz</div>
+    <div id="tension">Tension: -- kg</div>
+  </div>
+
+  <div class="section">
+    <h2>Manual Mode</h2>
+    <label>String Length (m): <input id="lengthInput" type="number" step="0.01" value="0.65"></label><br>
+    <label>Density (g/m): <input id="densityInput" type="number" step="0.01" value="1.7"></label><br>
+    <button id="startManualBtn">Start Manual Listening</button>
+    <button id="stopManualBtn" disabled>Stop Manual Listening</button>
+    <div id="manualFreq">Frequency: -- Hz</div>
+    <div id="manualTension">Tension: -- kg</div>
+  </div>
 
   <script>
-    const startBtn = document.getElementById('startBtn');
-    const stopBtn = document.getElementById('stopBtn');
+    const startAutoBtn = document.getElementById('startAutoBtn');
+    const stopAutoBtn = document.getElementById('stopAutoBtn');
     const freqDisplay = document.getElementById('freq');
     const tensionDisplay = document.getElementById('tension');
 
+    const startManualBtn = document.getElementById('startManualBtn');
+    const stopManualBtn = document.getElementById('stopManualBtn');
+    const lengthInput = document.getElementById('lengthInput');
+    const densityInput = document.getElementById('densityInput');
+    const manualFreqDisplay = document.getElementById('manualFreq');
+    const manualTensionDisplay = document.getElementById('manualTension');
+
     let audioContext, analyser, micStream, scriptNode;
+    let manualActive = false;
+    let manualL = 0.65, manualMu = 0.0017;
 
-    // Constants for tension calculation
-    const L = 0.65; // effective string length in meters
-    const mu = 0.0013; // mass per unit length (kg/m)
-    const g = 9.80665; // gravity
+    // Default constants for auto mode
+    const autoL = 0.65;
+    const autoMu = 0.0013;
+    const g = 9.80665;
 
-    startBtn.onclick = async () => {
-      audioContext = new (window.AudioContext || window.webkitAudioContext)();
-      analyser = audioContext.createAnalyser();
-      analyser.fftSize = 2048;
-      scriptNode = audioContext.createScriptProcessor(2048, 1, 1);
+    async function initAudio() {
+      if (!audioContext) {
+        audioContext = new (window.AudioContext || window.webkitAudioContext)();
+        analyser = audioContext.createAnalyser();
+        analyser.fftSize = 2048;
+        scriptNode = audioContext.createScriptProcessor(2048, 1, 1);
+        micStream = await navigator.mediaDevices.getUserMedia({ audio: true });
+        const micSource = audioContext.createMediaStreamSource(micStream);
+        micSource.connect(analyser);
+        analyser.connect(scriptNode);
+        scriptNode.connect(audioContext.destination);
 
-      micStream = await navigator.mediaDevices.getUserMedia({ audio: true });
-      const micSource = audioContext.createMediaStreamSource(micStream);
-      micSource.connect(analyser);
-      analyser.connect(scriptNode);
-      scriptNode.connect(audioContext.destination);
+        scriptNode.onaudioprocess = () => {
+          const buffer = new Float32Array(analyser.fftSize);
+          analyser.getFloatTimeDomainData(buffer);
+          const freq = autoCorrelate(buffer, audioContext.sampleRate);
+          if (freq !== -1) {
+            // Auto mode update
+            freqDisplay.textContent = `Frequency: ${freq.toFixed(2)} Hz`;
+            const tensionAutoN = (2 * autoL * freq) ** 2 * autoMu;
+            const tensionAutoKg = tensionAutoN / g;
+            tensionDisplay.textContent = `Tension: ${tensionAutoKg.toFixed(2)} kg`;
+            // Manual mode update if active
+            if (manualActive) {
+              manualFreqDisplay.textContent = `Frequency: ${freq.toFixed(2)} Hz`;
+              const tensionManualN = (2 * manualL * freq) ** 2 * manualMu;
+              const tensionManualKg = tensionManualN / g;
+              manualTensionDisplay.textContent = `Tension: ${tensionManualKg.toFixed(2)} kg`;
+            }
+          }
+        };
+      }
+    }
 
-      scriptNode.onaudioprocess = () => {
-        const buffer = new Float32Array(analyser.fftSize);
-        analyser.getFloatTimeDomainData(buffer);
-        const freq = autoCorrelate(buffer, audioContext.sampleRate);
-        if (freq !== -1) {
-          freqDisplay.textContent = `Frequency: ${freq.toFixed(2)} Hz`;
-          const tensionN = (2 * L * freq) ** 2 * mu;
-          const tensionKg = tensionN / g;
-          tensionDisplay.textContent = `Tension: ${tensionKg.toFixed(2)} kg`;
-        }
-      };
-
-      startBtn.disabled = true;
-      stopBtn.disabled = false;
+    startAutoBtn.onclick = async () => {
+      await initAudio();
+      startAutoBtn.disabled = true;
+      stopAutoBtn.disabled = false;
     };
 
-    stopBtn.onclick = () => {
+    stopAutoBtn.onclick = () => {
       scriptNode.disconnect();
       analyser.disconnect();
       micStream.getTracks().forEach(track => track.stop());
       audioContext.close();
-      startBtn.disabled = false;
-      stopBtn.disabled = true;
+      audioContext = null;
+      startAutoBtn.disabled = false;
+      stopAutoBtn.disabled = true;
+      freqDisplay.textContent = 'Frequency: -- Hz';
+      tensionDisplay.textContent = 'Tension: -- kg';
+    };
+
+    startManualBtn.onclick = () => {
+      manualL = parseFloat(lengthInput.value) || 0.65;
+      manualMu = (parseFloat(densityInput.value) / 1000) || 0.0017;
+      manualActive = true;
+      startManualBtn.disabled = true;
+      stopManualBtn.disabled = false;
+    };
+
+    stopManualBtn.onclick = () => {
+      manualActive = false;
+      startManualBtn.disabled = false;
+      stopManualBtn.disabled = true;
+      manualFreqDisplay.textContent = 'Frequency: -- Hz';
+      manualTensionDisplay.textContent = 'Tension: -- kg';
     };
 
     // Autocorrelation pitch detection algorithm
@@ -74,7 +129,7 @@
         rms += buffer[i] * buffer[i];
       }
       rms = Math.sqrt(rms / SIZE);
-      if (rms < 0.01) return -1; // too little signal
+      if (rms < 0.01) return -1;
 
       let r1 = 0, r2 = SIZE - 1, threshold = 0.2;
       for (let i = 0; i < SIZE/2; i++) {
