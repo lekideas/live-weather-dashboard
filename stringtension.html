@@ -1,0 +1,115 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>Tennis Racket Tension Estimator</title>
+  <style>
+    body { font-family: sans-serif; text-align: center; padding: 2rem; }
+    button { font-size: 1rem; padding: 0.5rem 1rem; margin: 1rem; }
+    #freq, #tension { font-size: 2rem; margin: 1rem; }
+  </style>
+</head>
+<body>
+  <h1>Tennis Racket String Tension Estimator</h1>
+  <button id="startBtn">Start Listening</button>
+  <button id="stopBtn" disabled>Stop Listening</button>
+  <div id="freq">Frequency: -- Hz</div>
+  <div id="tension">Tension: -- kg</div>
+
+  <script>
+    const startBtn = document.getElementById('startBtn');
+    const stopBtn = document.getElementById('stopBtn');
+    const freqDisplay = document.getElementById('freq');
+    const tensionDisplay = document.getElementById('tension');
+
+    let audioContext, analyser, micStream, scriptNode;
+
+    // Constants for tension calculation
+    const L = 0.65; // effective string length in meters
+    const mu = 0.0013; // mass per unit length (kg/m)
+    const g = 9.80665; // gravity
+
+    startBtn.onclick = async () => {
+      audioContext = new (window.AudioContext || window.webkitAudioContext)();
+      analyser = audioContext.createAnalyser();
+      analyser.fftSize = 2048;
+      scriptNode = audioContext.createScriptProcessor(2048, 1, 1);
+
+      micStream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      const micSource = audioContext.createMediaStreamSource(micStream);
+      micSource.connect(analyser);
+      analyser.connect(scriptNode);
+      scriptNode.connect(audioContext.destination);
+
+      scriptNode.onaudioprocess = () => {
+        const buffer = new Float32Array(analyser.fftSize);
+        analyser.getFloatTimeDomainData(buffer);
+        const freq = autoCorrelate(buffer, audioContext.sampleRate);
+        if (freq !== -1) {
+          freqDisplay.textContent = `Frequency: ${freq.toFixed(2)} Hz`;
+          const tensionN = (2 * L * freq) ** 2 * mu;
+          const tensionKg = tensionN / g;
+          tensionDisplay.textContent = `Tension: ${tensionKg.toFixed(2)} kg`;
+        }
+      };
+
+      startBtn.disabled = true;
+      stopBtn.disabled = false;
+    };
+
+    stopBtn.onclick = () => {
+      scriptNode.disconnect();
+      analyser.disconnect();
+      micStream.getTracks().forEach(track => track.stop());
+      audioContext.close();
+      startBtn.disabled = false;
+      stopBtn.disabled = true;
+    };
+
+    // Autocorrelation pitch detection algorithm
+    function autoCorrelate(buffer, sampleRate) {
+      let SIZE = buffer.length;
+      let rms = 0;
+      for (let i = 0; i < SIZE; i++) {
+        rms += buffer[i] * buffer[i];
+      }
+      rms = Math.sqrt(rms / SIZE);
+      if (rms < 0.01) return -1; // too little signal
+
+      let r1 = 0, r2 = SIZE - 1, threshold = 0.2;
+      for (let i = 0; i < SIZE/2; i++) {
+        if (Math.abs(buffer[i]) < threshold) { r1 = i; break; }
+      }
+      for (let i = 1; i < SIZE/2; i++) {
+        if (Math.abs(buffer[SIZE - i]) < threshold) { r2 = SIZE - i; break; }
+      }
+
+      buffer = buffer.slice(r1, r2);
+      SIZE = buffer.length;
+
+      const c = new Array(SIZE).fill(0);
+      for (let i = 0; i < SIZE; i++) {
+        for (let j = 0; j < SIZE - i; j++) {
+          c[i] += buffer[j] * buffer[j + i];
+        }
+      }
+
+      let d = 0;
+      while (c[d] > c[d + 1]) d++;
+      let maxval = -1, maxpos = -1;
+      for (let i = d; i < SIZE; i++) {
+        if (c[i] > maxval) {
+          maxval = c[i];
+          maxpos = i;
+        }
+      }
+      let T0 = maxpos;
+      const x1 = c[T0 - 1], x2 = c[T0], x3 = c[T0 + 1];
+      const a = (x1 + x3 - 2 * x2) / 2;
+      const b = (x3 - x1) / 2;
+      if (a) T0 = T0 - b / (2 * a);
+      return sampleRate / T0;
+    }
+  </script>
+</body>
+</html>
